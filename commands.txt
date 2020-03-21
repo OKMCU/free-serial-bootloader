@@ -1,0 +1,31 @@
+1. Hand-shaking (for serial port only)
+   MASTER send 0x55 0x55 0x55 ... 0x55
+   SLAVE reply 0xAA 0xAA 0xAA ... 0xAA
+   MASTER can confirm that SLAVE is ready when receives 0xAA and can continue the communication.
+
+2. Packet Format between MASTER and SLAVE
+   > MASTER Write Register:
+     AA{Type=W}{DataLen=n}{RegAddr}{D0}{D1}...{Dn}{CRC8}
+   > SLAVE ACK:
+     AA{Type=A}{CRC8}
+   > MASTER Read Register:
+     AA{Type=R}{RegAddr}{CRC8}
+   
+   
+   DataLen  -> 0~255, specify data length
+   Type     -> 0x00, MASTER Write Register
+               0x10, SLAVE Ack MASTER
+               0x01, MASTER Read Register
+               0x11, SLAVE Reply MASTER
+               
+   
+W{REG}{DATA0}{DATA1}...{DATAn}{EOL}
+R{REG}{LEN}{EOL}
+A{REG}{DATA0}{DATA1}...{DATAn}{EOL}
+
+REG0[64], RO, mcu_part_number
+REG1[3], RO, version
+REG2[4], RO, min_flash_addr
+REG3[4], RO, max_flash_addr
+REG4[2], RO, flash_page_size
+REG5[1], RO, flash_write_time
