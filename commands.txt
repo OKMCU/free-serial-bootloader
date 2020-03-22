@@ -3,29 +3,54 @@
    SLAVE reply 0xAA 0xAA 0xAA ... 0xAA
    MASTER can confirm that SLAVE is ready when receives 0xAA and can continue the communication.
 
-2. Packet Format between MASTER and SLAVE
+2. Packet Format (in hex) between MASTER and SLAVE
    > MASTER Write Register:
-     AA{Type=W}{DataLen=n}{RegAddr}{D0}{D1}...{Dn}{CRC8}
-   > SLAVE ACK:
-     AA{Type=A}{CRC8}
-   > MASTER Read Register:
-     AA{Type=R}{RegAddr}{CRC8}
-   
-   
-   DataLen  -> 0~255, specify data length
-   Type     -> 0x00, MASTER Write Register
-               0x10, SLAVE Ack MASTER
-               0x01, MASTER Read Register
-               0x11, SLAVE Reply MASTER
-               
-   
-W{REG}{DATA0}{DATA1}...{DATAn}{EOL}
-R{REG}{LEN}{EOL}
-A{REG}{DATA0}{DATA1}...{DATAn}{EOL}
+     AA{DataLen=n}{RegAddr}{D0}{D1}...{Dn}{CRC8}
+   > SLAVE ACK Write Register:
+     55{DataLen=0}{RegAddr}{CRC8}
+   > MASTER Read Register Request:
+     AA{DataLen=0}{RegAddr}{CRC8}
+   > SLAVE Reply Read Register Request:
+     55{DataLen=n}{RegAddr}{D0}{D1}...{Dn}{CRC8}
 
-REG0[64], RO, mcu_part_number
-REG1[3], RO, version
-REG2[4], RO, min_flash_addr
-REG3[4], RO, max_flash_addr
-REG4[2], RO, flash_page_size
-REG5[1], RO, flash_write_time
+3. Register memory map
+    REG_00h[64], RO, ASCII,    MCU Part Number
+    REG_01h[3],  RO, uint8_t[],Bootloader Version
+    REG_02h[4],  RO, uint32_t, Bgn of FLASH Address
+    REG_03h[4],  RO, uint32_t, End of FLASH Address
+    REG_04h[2],  RO, uint16_t, Size of a FLASH Page
+    REG_05h[2],  RO, uint16_t, Number of FLASH Page
+    REG_06h[1],  RO, uint8_t,  Erase Time per FLASH Page
+    REG_07h[1],  RO, uint8_t,  Number of bytes required per FLASH write operation
+    REG_08h[2],  RO, uint16_t, Size of buffer for FLASH memory content
+    REG_09h[1],  RO, uint8_t,  FLASH Write Time (in ms) per FLASH write operation
+    REG_0Ah[2],  RO, uint16_t, Number of EEPROM page
+    REG_0Bh[2],  RO, uint16_t, Size of a EEPROM page
+
+    REG_10h[1],  RW, uint8_t,  0x01 = Clear buffer data, fill 0xFF
+                               0x02 = Erase the selected FLASH page,
+                               0x03 = Write buffer data to FLASH,
+                               0x04 = Calculate CRC-16 of the selected FLASH page,
+                               0x05 = Erase the selected EEPROM page, 
+                               0x05 = Write buffer data to EEPROM,
+                               0x06 = Calculate CRC-16 of the selected EEPROM page,
+                               0xEF = Erase all FLASH pages,
+                               0xFF = Erase all EEPROM pages,
+                               read clear to 0x00, if it is not 0x00, means the operation is failed
+                               
+    REG_11h[1],  RO, uint8_t,  0x00 = OK
+                               0x01 = Invalid FLASH page
+                               0x02 = FLASH page data overflow
+                               0x03 = No more data in the FLASH page
+                               0x04 = Invalid EEPROM page
+                               0x05 = EEPROM page data overflow
+                               0x06 = No more data in the FLASH page
+    REG_12h[2],  RW, uint16_t, Write data to buffer
+
+    REG_20h[2],  RW, uint16_t, Select FLASH Page for erase/read/write/crc operation
+    REG_21h[?],  RO, uint8_t[],Read FLASH data
+    REG_22h[2],  RO, uint16_t, CRC-16 of the selected FLASH page
+
+    REG_30h[1],  RW, uint16_t, Select EEPROM Page for erase/read/write/crc operation
+    REG_31h[?],  RO, uint8_t[],Read EEPROM data
+    REG_32h[2],  RO, uint16_t, CRC-16 of the selected EEPROM page
