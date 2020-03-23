@@ -21,9 +21,9 @@
 3. Register memory map
     // Device information & status
     REG_00h[128] RO   ASCII       MCU Part Number
-    REG_01h[3]   RO   uint8_t[]   Bootloader Version
-    REG_02h[4]   RO   uint32_t    Bgn of FLASH Address
-    REG_03h[4]   RO   uint32_t    End of FLASH Address
+    REG_01h[128] RO   ASCII       MCU UUID
+    REG_02h[3]   RO   uint8_t[]   Bootloader Version
+    REG_03h[4]   RO   uint32_t    Bgn of FLASH Address
     REG_04h[2]   RO   uint16_t    Size of a FLASH Page
     REG_05h[2]   RO   uint16_t    Number of FLASH Page
     REG_06h[1]   RO   uint8_t     Erase Time per FLASH Page
