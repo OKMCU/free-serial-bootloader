@@ -1,0 +1,8 @@
+settings
+Exe
+List
+Obj
+*.dep
+*.out
+*.ewd
+*.ewt
