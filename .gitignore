@@ -1,7 +1,1 @@
 .vscode
-settings
-*.dep
-*.out
-Release/List
-Release/Obj
-Debug
