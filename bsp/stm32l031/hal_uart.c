@@ -87,10 +87,10 @@ void hal_uart_init(uint8_t port, const hal_uart_config_t *cfg)
             LL_APB1_GRP1_ReleaseReset( LL_APB1_GRP1_PERIPH_USART2 );
             LL_GPIO_SetPinPull( GPIOA, LL_GPIO_PIN_2, LL_GPIO_PULL_UP );
             LL_GPIO_SetPinPull( GPIOA, LL_GPIO_PIN_15, LL_GPIO_PULL_UP );
-            //LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_2, LL_GPIO_MODE_ALTERNATE ); // PA2:  USART2_TX
-            //LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_15, LL_GPIO_MODE_ALTERNATE );// PA15: USART2_RX
-            LL_GPIO_SetAFPin_0_7( GPIOA, LL_GPIO_PIN_2, LL_GPIO_AF_7 );         // PA2:  USART2_TX
-            LL_GPIO_SetAFPin_0_7( GPIOA, LL_GPIO_PIN_15, LL_GPIO_AF_4 );        // PA15: USART2_RX
+            LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_2, LL_GPIO_MODE_ALTERNATE ); // PA2:  USART2_TX
+            LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_15, LL_GPIO_MODE_ALTERNATE );// PA15: USART2_RX
+            LL_GPIO_SetAFPin_0_7( GPIOA, LL_GPIO_PIN_2, LL_GPIO_AF_4 );         // PA2:  USART2_TX
+            LL_GPIO_SetAFPin_8_15( GPIOA, LL_GPIO_PIN_15, LL_GPIO_AF_4 );       // PA15: USART2_RX
             NVIC_EnableIRQ( USART2_IRQn );
         break;
     }
@@ -177,14 +177,13 @@ void hal_uart_open(uint8_t port)
     //ST_ASSERT( port < HAL_UART_PORT_MAX );
     //ST_ASSERT( !LL_USART_IsEnabled(USARTx[port]) );
     LL_USART_Enable( USARTx[port] );
-    LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_2, LL_GPIO_MODE_ALTERNATE ); // PA2:  USART2_TX
-    LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_15, LL_GPIO_MODE_ALTERNATE );// PA15: USART2_RX
+    //LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_2, LL_GPIO_MODE_ALTERNATE ); // PA2:  USART2_TX
+    //LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_15, LL_GPIO_MODE_ALTERNATE );// PA15: USART2_RX
 }
 
 uint16_t hal_uart_write(uint8_t port, const uint8_t *pbuf, uint16_t len)
 {
     uint16_t cnt;
-    uint8_t byte;
     //ST_ASSERT( port < HAL_UART_PORT_MAX );
     //ST_ASSERT( LL_USART_IsEnabled(USARTx[port]) );
     
@@ -200,13 +199,13 @@ uint16_t hal_uart_write(uint8_t port, const uint8_t *pbuf, uint16_t len)
         if( RING_BUF_EMPTY(uart_ctrl[port].tx_head, uart_ctrl[port].tx_tail) &&
             LL_USART_IsActiveFlag_TXE(USARTx[port]) )
         {
-            LL_USART_TransmitData8( USARTx[port], byte );
+            LL_USART_TransmitData8( USARTx[port], pbuf[cnt] );
             LL_USART_EnableIT_TXE( USARTx[port] );
         }
         else
         {
             LL_USART_DisableIT_TXE( USARTx[port] );
-            RING_BUF_PUT( byte,
+            RING_BUF_PUT( pbuf[cnt],
                           uart_ctrl[port].tx_head, 
                           uart_cache[port].tx_cache, 
                           uart_cache[port].tx_cache_size );
@@ -248,8 +247,8 @@ void hal_uart_close(uint8_t port)
 {
     //ST_ASSERT( port < HAL_UART_PORT_MAX );
     //ST_ASSERT( LL_USART_IsEnabled(USARTx[port]) );
-    LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_2, LL_GPIO_MODE_ANALOG ); // PA2:  USART2_TX
-    LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_15, LL_GPIO_MODE_ANALOG );// PA15: USART2_RX
+    //LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_2, LL_GPIO_MODE_ANALOG ); // PA2:  USART2_TX
+    //LL_GPIO_SetPinMode( GPIOA, LL_GPIO_PIN_15, LL_GPIO_MODE_ANALOG );// PA15: USART2_RX
     LL_USART_Disable( USARTx[port] );
 }
 

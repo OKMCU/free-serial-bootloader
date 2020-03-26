@@ -25,9 +25,9 @@ static uint16_t txcnt;
 /* Private functions ---------------------------------------------------------*/
 /* Exported variables --------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/
-
 void main( void )
 {
+    uint16_t i;
     hal_uart_config_t cfg;
     
     hal_mcu_init();
@@ -43,6 +43,13 @@ void main( void )
     hal_uart_init(HAL_UART_PORT_0, &cfg);
     hal_uart_open(HAL_UART_PORT_0);
 
+    for(i = 0; i < HAL_FLASH_PAGE_SIZE; i++)
+    {
+        cmd[i] = hal_flash_read(0x08000000+i);
+    }
+    txcnt = 0;
+    while(txcnt < HAL_FLASH_PAGE_SIZE)
+        txcnt += hal_uart_write(HAL_UART_PORT_0, cmd+txcnt, HAL_FLASH_PAGE_SIZE-txcnt);
     rxcnt = 0;
     for(;;)
     {
@@ -51,10 +58,37 @@ void main( void )
         rxcnt = hal_uart_read(HAL_UART_PORT_0, cmd, sizeof(cmd));
         if(rxcnt)
         {
-            txcnt = 0;
-            while(txcnt < rxcnt)
-              txcnt += hal_uart_write(HAL_UART_PORT_0, cmd+txcnt, rxcnt-txcnt);
+            //txcnt = 0;
+            //while(txcnt < rxcnt)
+            //    txcnt += hal_uart_write(HAL_UART_PORT_0, cmd+txcnt, rxcnt-txcnt);
+            
+            switch(cmd[0])
+            {
+                case 0x00:
+                    for(i = 0; i < HAL_FLASH_PAGE_SIZE; i++)
+                    {
+                        cmd[i] = i;
+                    }
+                    hal_flash_write(HAL_FLASH_APP_CODE_START_ADDR, cmd, HAL_FLASH_PAGE_SIZE);
+                break;
+                
+                case 0x01:
+                    for(i = 0; i < HAL_FLASH_PAGE_SIZE; i++)
+                    {
+                        cmd[i] = hal_flash_read(HAL_FLASH_APP_CODE_START_ADDR+i);
+                    }
+                    txcnt = 0;
+                    while(txcnt < HAL_FLASH_PAGE_SIZE)
+                        txcnt += hal_uart_write(HAL_UART_PORT_0, cmd+txcnt, HAL_FLASH_PAGE_SIZE-txcnt);
+                break;
+                
+                case 0xFF:
+                    hal_flash_erase_page(HAL_FLASH_APP_CODE_START_ADDR);
+                break;
+            }
         }
+
+        
     }
 
 }

@@ -970,6 +970,9 @@
       <name>$PROJ_DIR$\..\hal_flash.c</name>
     </file>
     <file>
+      <name>$PROJ_DIR$\..\hal_interrupt.c</name>
+    </file>
+    <file>
       <name>$PROJ_DIR$\..\hal_mcu.c</name>
     </file>
     <file>

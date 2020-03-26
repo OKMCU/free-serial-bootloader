@@ -15,10 +15,17 @@
 
 /* Includes ------------------------------------------------------------------*/
 /* Exported constants --------------------------------------------------------*/
+#define HAL_FLASH_APP_CODE_START_ADDR       0x08002000                          // start flash address for app-code
+#define HAL_FLASH_APP_CODE_NUM_OF_PAGE      192                                 // number of flash pages for app-code
+#define HAL_FLASH_PAGE_SIZE                 128                                 // 128-byte per page
+#define HAL_FLASH_CELL_WIDTH                4                                   // 4-byte cell width
 /* Exported types ------------------------------------------------------------*/
 /* Exported macro ------------------------------------------------------------*/
 /* Exported variables --------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/
+void hal_flash_erase_page( uint32_t addr );
+void hal_flash_write( uint32_t addr, uint8_t *pdata, uint16_t len );
+uint8_t hal_flash_read( uint32_t addr );
 
 
 #endif /* __HAL_FLASH_H */
