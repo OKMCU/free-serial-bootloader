@@ -19,7 +19,8 @@
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 static uint8_t cmd[256];
-static uint16_t len;
+static uint16_t rxcnt;
+static uint16_t txcnt;
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
 /* Exported variables --------------------------------------------------------*/
@@ -27,20 +28,32 @@ static uint16_t len;
 
 void main( void )
 {
+    hal_uart_config_t cfg;
+    
     hal_mcu_init();
     //hal_mcu_wdg_start();
-    hal_uart_init();
-    hal_uart_open(115200);
+    
+    cfg.baud_rate = HAL_UART_BAUD_RATE_115200;
+    cfg.bit_order = HAL_UART_BIT_ORDER_LSB;
+    cfg.data_bits = HAL_UART_DATA_BITS_8;
+    cfg.invert = HAL_UART_NRZ_NORMAL;
+    cfg.parity = HAL_UART_PARITY_NONE;
+    cfg.stop_bits = HAL_UART_STOP_BITS_1;
+    
+    hal_uart_init(HAL_UART_PORT_0, &cfg);
+    hal_uart_open(HAL_UART_PORT_0);
 
-    len = 0;
+    rxcnt = 0;
     for(;;)
     {
         //hal_mcu_wdg_reset();
 
-        len = hal_uart_read(cmd, sizeof(256));
-        if(len)
+        rxcnt = hal_uart_read(HAL_UART_PORT_0, cmd, sizeof(cmd));
+        if(rxcnt)
         {
-            hal_uart_write(cmd, len);
+            txcnt = 0;
+            while(txcnt < rxcnt)
+              txcnt += hal_uart_write(HAL_UART_PORT_0, cmd+txcnt, rxcnt-txcnt);
         }
     }
 
