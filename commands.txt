@@ -27,7 +27,7 @@
     REG_04h[2]   RO   uint16_t    Size of a FLASH Page
     REG_05h[2]   RO   uint16_t    Number of FLASH Page
     REG_06h[1]   RO   uint8_t     Erase Time per FLASH Page
-    REG_07h[1]   RO   uint8_t     Number of bytes required per FLASH write operation
+    REG_07h[1]   RO   uint8_t     Flash cell width
     REG_08h[2]   RO   uint16_t    Size of scratch pad for buffering FLASH/EEPROM memory content
     REG_09h[1]   RO   uint8_t     FLASH Write Time (in ms) per FLASH write operation
     REG_0Ah[4]   RO   uint16_t    Size of EEPROM

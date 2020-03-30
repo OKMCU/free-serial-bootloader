@@ -16,6 +16,11 @@
 #include "hal_flash.h"
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
+#define MCU_PART_NUMBER                     "STM32L031"
+#define BOOTLOADER_VERSION_MAJOR            1
+#define BOOTLOADER_VERSION_MINOR            0
+#define BOOTLOADER_VERSION_PATCH            0
+#define SCRATCH_PAD_SIZE                    128
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 static uint8_t cmd[256];

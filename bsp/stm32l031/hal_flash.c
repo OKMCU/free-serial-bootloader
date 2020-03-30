@@ -22,8 +22,13 @@
 /* Private functions ---------------------------------------------------------*/
 /* Exported variables --------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/
-void hal_flash_erase_page( uint32_t addr )
+void hal_flash_erase_page( uint16_t page_id )
 {
+    uint32_t addr;
+
+    if(page_id >= HAL_FLASH_APP_CODE_NUM_OF_PAGE )
+        return;
+    addr = page_id*HAL_FLASH_PAGE_SIZE+HAL_FLASH_APP_CODE_START_ADDR;
     /* (1) Wait till no operation is on going */
     /* (2) Check if the PELOCK is unlocked */
     /* (3) Perform unlock sequence */
