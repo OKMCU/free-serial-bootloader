@@ -23,100 +23,93 @@
 3. Payload format in a packet
    > HOST writes DEVICE register:
      [type] [reg_addr] [byte0] [byte1] ... [byteN]
-   > DEVICE acknoledges HOST write operation:
+   > DEVICE acknoledge HOST write operation:
      [type] [reg_addr] [num_of_byte]
    > HOST read register request:
      [type] [reg_addr] [num_of_byte]
-   > DEVICE returns register data:
+   > DEVICE replys register data:
      [type] [reg_addr] [byte0] [byte1] ... [byteN]
 
      type       1-byte
                 packet payload type
-                0x00 = write register packet
-                0x01 = read register request packet
-                0x02 = acknowledge packet
-                0x03 = reply packet
-                0x04 = interrupt packet
+                0x00 = interrupt packet
+                0x01 = write register packet
+                0x10 = acknoledge packet
+                0x02 = read register request packet
+                0x20 = reply packet
 
 4. Register memory map
-    // Device information & status
+    // MCU information & status
     REG_00h[128] RO   ASCII       MCU Part Number
     REG_01h[128] RO   ASCII       MCU UUID
     REG_02h[3]   RO   uint8_t[]   Bootloader Version
+
+    // FLASH information
     REG_03h[4]   RO   uint32_t    FLASH start address
     REG_04h[4]   RO   uint32_t    FLASH size
-    REG_05h[4]   RO   uint32_t    FLASH segmentation size
-    REG_06h[4]   RO   uint32_t    EEPROM size
-    REG_07h[4]   RO   uint32_t    EEPROM segmentation size
+    REG_05h[4]   RO   uint32_t    number of FLASH sectors
+    REG_06h[4]   RO   uint32_t    Min. FLASH data block size for a write operation
+    REG_07h[4]   RO   uint32_t    Max. FLASH data block write time
+    REG_08h[4]   RO   uint32_t    Max. chip FLASH erase time
+
+    // EEPROM information
+    REG_09h[4]   RO   uint32_t    EEPROM size
+    REG_0Ah[4]   RO   uint32_t    number of EEPROM sectors
+    REG_0Bh[4]   RO   uint32_t    Min. EEPROM data block size for a write operation
+    REG_0Ch[4]   RO   uint32_t    Max. EEPROM data block write time
+    REG_0Dh[4]   RO   uint32_t    Max. chip EEPROM erase time
+
+    REG_0Fh[1]   RO   uint8_t     CMD status
+                                  [7]   STS_BUSY
+                                  [6]   STS_FAIL
+                                  [5:0] Last operation status
+                                        > STS_BUSY=1, STS_FAIL=X (IN PROGRESS)
+                                        00h=Reserved
+                                        01h=CMD is captured but not processed
+                                        02h=CMD checking is in progress
+                                        03h=CMD execution is in progress
+                                        04h-3Fh=Reserved
+                                        > STS BUSY=0, STS_FAIL=0 (SUCCESS)
+                                        00h=Reserved
+                                        01h=CMD completed successfully without specific message
+                                        02h-3Fh=Reserved
+                                        > STS_BUSY=0, STS_FAIL=1 (FAILED)
+                                        00h=Reserved
+                                        01h=Unknown error
+                                        02h=Parameter range error or not supported
+                                        03h-0Fh=Reserved
+                                        10-1Fh=FLASH operation error code
+                                        20-2Fh=EEPROM operation error code
+                                        30-3Fh=Reserved
 
     // MCU FLASH operation
-    REG_10h[1]   RO   uint8_t     status
-                                  [7]   STS_BUSY
-                                  [6]   STS_FAIL
-                                  [5:0] Last FLASH operation status
-                                        > STS_BUSY=1, STS_FAIL=X (IN PROGRESS)
-                                        00h=Reserved
-                                        01h=CMD is captured but not processed
-                                        02h=CMD checking is in progress
-                                        03h=CMD execution is in progress
-                                        04h-3Fh=Reserved
-                                        > STS BUSY=0, STS_FAIL=0 (SUCCESS)
-                                        00h=Reserved
-                                        01h=CMD completed successfully without specific message
-                                        02h-3Fh=Reserved
-                                        > STS_BUSY=0, STS_FAIL=1 (FAILED)
-                                        00h=Reserved
-                                        01h=Unknown error
-                                        02h=Parameter range error or not supported
-                                        03h-0Fh=Reserved
-                                        10h=chip FLASH erase error
-                                        11h=invalid FLASH address
-                                        12h=fail to write data to FLASH
-                                        13h-3Fh=Reserved
-    REG_11h[1]   RW   uint8_t     Chip FLASH Erase
-                                  write 1 = chip FLASH erase
-                                  read  1 = chip FLASH erase in progress
-                                  read  0 = chip FLASH erase done
-    REG_12h[4]   RW   uint32_t    FLASH address
-    REG_13h[128] RW   uint8_t[]   R/W FLASH data
-    REG_14h[1]   RW   uint8_t     Calculate CRC-8
-                                  write 1 = calculate crc-8 of the selected segmentation
-                                  read  1 = calculate crc-8 in progress
-                                  read  0 = calculate crc-8 done
-    REG_15h[1]   RO   uint8_t     CRC-8 result
+    REG_10h[1]   RW   uint8_t     FLASH Erase
+                                  write 0x81 = erase full chip FLASH
+                                  write 0x82 = erase selected FLASH sector
+                                  write 0x01 = calculate CRC-8 of full chip FLASH
+                                  write 0x02 = calculate CRC-8 of the selected FLASH sector
+                                  read  0x00 = FLASH operation done
+    REG_11h[4]   RW               FLASH sector select
+    REG_12h[4]   RO               FLASH sector start address
+    REG_13h[4]   RO               FLASH sector size
+    REG_14h[4]   RO               FLASH sector erase time
+    REG_15h[4]   RW   uint32_t    WR FLASH address offset pointer (auto increase)
+    REG_16h[128] RW   uint8_t[]   WR FLASH data
+    REG_17h[4]   RW   uint32_t    RD FLASH address offset pointer (auto increase)
+    REG_18h[128] RW   uint8_t[]   RD FLASH data
 
     // MCU EEPROM operation
-    REG_20h[1]   RO   uint8_t     status
-                                  [7]   STS_BUSY
-                                  [6]   STS_FAIL
-                                  [5:0] Last EEPROM operation status
-                                        > STS_BUSY=1, STS_FAIL=X (IN PROGRESS)
-                                        00h=Reserved
-                                        01h=CMD is captured but not processed
-                                        02h=CMD checking is in progress
-                                        03h=CMD execution is in progress
-                                        04h-3Fh=Reserved
-                                        > STS BUSY=0, STS_FAIL=0 (SUCCESS)
-                                        00h=Reserved
-                                        01h=CMD completed successfully without specific message
-                                        02h-3Fh=Reserved
-                                        > STS_BUSY=0, STS_FAIL=1 (FAILED)
-                                        00h=Reserved
-                                        01h=Unknown error
-                                        02h=Parameter range error or not supported
-                                        03h-0Fh=Reserved
-                                        10h=chip EEPROM erase error
-                                        11h=invalid EEPROM address
-                                        12h=fail to write data to EEPROM
-                                        13h-3Fh=Reserved
-    REG_21h[1]   RW   uint8_t     Chip EEPROM Erase
-                                  write 1 = chip EEPROM erase
-                                  read  1 = chip EEPROM erase in progress
-                                  read  0 = chip EEPROM erase done
-    REG_22h[4]   RW   uint32_t    EEPROM address
-    REG_23h[128] RW   uint8_t[]   R/W EEPROM data
-    REG_24h[1]   RW   uint8_t     Calculate CRC-8
-                                  write 1 = calculate crc-8 of the selected segmentation
-                                  read  1 = calculate crc-8 in progress
-                                  read  0 = calculate crc-8 done
-    REG_25h[1]   RO   uint8_t     CRC-8 result
+    REG_20h[1]   RW   uint8_t     EEPROM Erase
+                                  write 0x81 = erase full chip EEPROM
+                                  write 0x82 = erase selected EEPROM sector
+                                  write 0x01 = calculate CRC-8 of full chip EEPROM
+                                  write 0x02 = calculate CRC-8 of the selected EEPROM sector
+                                  read  0x00 = EEPROM operation done
+    REG_21h[4]   RW               EEPROM sector select
+    REG_22h[4]   RO               EEPROM sector start address
+    REG_23h[4]   RO               EEPROM sector size
+    REG_24h[4]   RO               EEPROM sector erase time
+    REG_25h[4]   RW   uint32_t    WR EEPROM address offset pointer (auto increase)
+    REG_26h[128] RW   uint8_t[]   WR EEPROM data
+    REG_27h[4]   RW   uint32_t    RD EEPROM address offset pointer (auto increase)
+    REG_28h[128] RW   uint8_t[]   RD EEPROM data
