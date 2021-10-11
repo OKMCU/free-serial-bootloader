@@ -43,23 +43,10 @@
     REG_00h[128] RO   ASCII       MCU Part Number
     REG_01h[128] RO   ASCII       MCU UUID
     REG_02h[3]   RO   uint8_t[]   Bootloader Version
+    REG_03h[4]   RO   uint32_t    Bootloader start FLASH address
+    REG_04h[4]   RO   uint32_t    Bootloader size
 
-    // FLASH information
-    REG_03h[4]   RO   uint32_t    FLASH start address
-    REG_04h[4]   RO   uint32_t    FLASH size
-    REG_05h[4]   RO   uint32_t    number of FLASH sectors
-    REG_06h[4]   RO   uint32_t    Min. FLASH data block size for a write operation
-    REG_07h[4]   RO   uint32_t    Max. FLASH data block write time
-    REG_08h[4]   RO   uint32_t    Max. chip FLASH erase time
-
-    // EEPROM information
-    REG_09h[4]   RO   uint32_t    EEPROM size
-    REG_0Ah[4]   RO   uint32_t    number of EEPROM sectors
-    REG_0Bh[4]   RO   uint32_t    Min. EEPROM data block size for a write operation
-    REG_0Ch[4]   RO   uint32_t    Max. EEPROM data block write time
-    REG_0Dh[4]   RO   uint32_t    Max. chip EEPROM erase time
-
-    REG_0Fh[1]   RO   uint8_t     CMD status
+    REG_0Dh[1]   RO   uint8_t     CMD status
                                   [7]   STS_BUSY
                                   [6]   STS_FAIL
                                   [5:0] Last operation status
@@ -81,35 +68,54 @@
                                         10-1Fh=FLASH operation error code
                                         20-2Fh=EEPROM operation error code
                                         30-3Fh=Reserved
+    REG_0Eh[8]   RW   uint8_t     Application firmware ImageA&B FLASH address
+    REG_0Fh[2]   RW   uint16_t    Exit bootloader & reset
+                                  [7:0] delay time before exit
 
-    // MCU FLASH operation
-    REG_10h[1]   RW   uint8_t     FLASH Erase
+    // FLASH information
+    REG_10h[4]   RO   uint32_t    FLASH start address
+    REG_11h[4]   RO   uint32_t    FLASH size
+    REG_12h[4]   RO   uint32_t    number of FLASH sectors
+    REG_13h[4]   RO   uint32_t    Min. FLASH data block size for a write operation
+    REG_14h[4]   RO   uint32_t    Max. FLASH data block write time
+    REG_15h[4]   RO   uint32_t    Max. chip FLASH erase time
+
+    // EEPROM information
+    REG_20h[4]   RO   uint32_t    FLASH start address, fill the FLASH address if it's a virtual EEPROM or fill 0x00000000 if it's a true EEPROM
+    REG_21h[4]   RO   uint32_t    EEPROM size
+    REG_22h[4]   RO   uint32_t    number of EEPROM sectors
+    REG_23h[4]   RO   uint32_t    Min. EEPROM data block size for a write operation
+    REG_24h[4]   RO   uint32_t    Max. EEPROM data block write time
+    REG_25h[4]   RO   uint32_t    Max. chip EEPROM erase time
+
+    // FLASH operation
+    REG_30h[1]   RW   uint8_t     FLASH Erase
                                   write 0x81 = erase full chip FLASH
                                   write 0x82 = erase selected FLASH sector
                                   write 0x01 = calculate CRC-8 of full chip FLASH
                                   write 0x02 = calculate CRC-8 of the selected FLASH sector
                                   read  0x00 = FLASH operation done
-    REG_11h[4]   RW               FLASH sector select
-    REG_12h[4]   RO               FLASH sector start address
-    REG_13h[4]   RO               FLASH sector size
-    REG_14h[4]   RO               FLASH sector erase time
-    REG_15h[4]   RW   uint32_t    WR FLASH address offset pointer (auto increase)
-    REG_16h[128] RW   uint8_t[]   WR FLASH data
-    REG_17h[4]   RW   uint32_t    RD FLASH address offset pointer (auto increase)
-    REG_18h[128] RW   uint8_t[]   RD FLASH data
+    REG_31h[4]   RW               FLASH sector select
+    REG_32h[4]   RO               FLASH sector start address
+    REG_33h[4]   RO               FLASH sector size
+    REG_34h[4]   RO               FLASH sector erase time
+    REG_35h[4]   RW   uint32_t    WR FLASH address offset pointer (auto increase)
+    REG_36h[128] RW   uint8_t[]   WR FLASH data
+    REG_37h[4]   RW   uint32_t    RD FLASH address offset pointer (auto increase)
+    REG_38h[128] RW   uint8_t[]   RD FLASH data
 
-    // MCU EEPROM operation
-    REG_20h[1]   RW   uint8_t     EEPROM Erase
+    // EEPROM operation
+    REG_40h[1]   RW   uint8_t     EEPROM Erase
                                   write 0x81 = erase full chip EEPROM
                                   write 0x82 = erase selected EEPROM sector
                                   write 0x01 = calculate CRC-8 of full chip EEPROM
                                   write 0x02 = calculate CRC-8 of the selected EEPROM sector
                                   read  0x00 = EEPROM operation done
-    REG_21h[4]   RW               EEPROM sector select
-    REG_22h[4]   RO               EEPROM sector start address
-    REG_23h[4]   RO               EEPROM sector size
-    REG_24h[4]   RO               EEPROM sector erase time
-    REG_25h[4]   RW   uint32_t    WR EEPROM address offset pointer (auto increase)
-    REG_26h[128] RW   uint8_t[]   WR EEPROM data
-    REG_27h[4]   RW   uint32_t    RD EEPROM address offset pointer (auto increase)
-    REG_28h[128] RW   uint8_t[]   RD EEPROM data
+    REG_41h[4]   RW               EEPROM sector select
+    REG_42h[4]   RO               EEPROM sector start address
+    REG_43h[4]   RO               EEPROM sector size
+    REG_44h[4]   RO               EEPROM sector erase time
+    REG_45h[4]   RW   uint32_t    WR EEPROM address offset pointer (auto increase)
+    REG_46h[128] RW   uint8_t[]   WR EEPROM data
+    REG_47h[4]   RW   uint32_t    RD EEPROM address offset pointer (auto increase)
+    REG_48h[128] RW   uint8_t[]   RD EEPROM data
