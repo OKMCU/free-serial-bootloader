@@ -21,23 +21,43 @@
                 crc8 = 0x00 means bypass CRC checking
 
 3. Payload format in a packet
-   > HOST writes DEVICE register:
+   > HOST writes:
      [type] [reg_addr] [byte0] [byte1] ... [byteN]
-   > DEVICE acknoledge HOST write operation:
+   > DEVICE acknoledges:
+     [type] [reg_addr] [status_code]
+   > HOST reads:
      [type] [reg_addr] [num_of_byte]
-   > HOST read register request:
-     [type] [reg_addr] [num_of_byte]
-   > DEVICE replys register data:
+   > DEVICE replys:
      [type] [reg_addr] [byte0] [byte1] ... [byteN]
 
      type       1-byte
                 packet payload type
-                0x00 = interrupt packet
                 0x01 = write register packet
                 0x10 = acknoledge packet
                 0x02 = read register request packet
                 0x20 = reply packet
-
+    status code
+                [7]   STS_BUSY
+                [6]   STS_FAIL
+                [5:0] Last operation status
+                      > STS_BUSY=1, STS_FAIL=X (IN PROGRESS)
+                      00h=Reserved
+                      01h=CMD is captured but not processed
+                      02h=CMD checking is in progress
+                      03h=CMD execution is in progress
+                      04h-3Fh=Reserved
+                      > STS BUSY=0, STS_FAIL=0 (SUCCESS)
+                      00h=Reserved
+                      01h=CMD completed successfully without specific message
+                      02h-3Fh=Reserved
+                      > STS_BUSY=0, STS_FAIL=1 (FAILED)
+                      00h=Reserved
+                      01h=Unknown error
+                      02h=Parameter range error or not supported
+                      03h-0Fh=Reserved
+                      10-1Fh=FLASH operation error code
+                      20-2Fh=EEPROM operation error code
+                      30-3Fh=Reserved
 4. Register memory map
     // MCU information & status
     REG_00h[128] RO   ASCII       MCU Part Number
@@ -46,28 +66,6 @@
     REG_03h[4]   RO   uint32_t    Bootloader start FLASH address
     REG_04h[4]   RO   uint32_t    Bootloader size
 
-    REG_0Dh[1]   RO   uint8_t     CMD status
-                                  [7]   STS_BUSY
-                                  [6]   STS_FAIL
-                                  [5:0] Last operation status
-                                        > STS_BUSY=1, STS_FAIL=X (IN PROGRESS)
-                                        00h=Reserved
-                                        01h=CMD is captured but not processed
-                                        02h=CMD checking is in progress
-                                        03h=CMD execution is in progress
-                                        04h-3Fh=Reserved
-                                        > STS BUSY=0, STS_FAIL=0 (SUCCESS)
-                                        00h=Reserved
-                                        01h=CMD completed successfully without specific message
-                                        02h-3Fh=Reserved
-                                        > STS_BUSY=0, STS_FAIL=1 (FAILED)
-                                        00h=Reserved
-                                        01h=Unknown error
-                                        02h=Parameter range error or not supported
-                                        03h-0Fh=Reserved
-                                        10-1Fh=FLASH operation error code
-                                        20-2Fh=EEPROM operation error code
-                                        30-3Fh=Reserved
     REG_0Eh[8]   RW   uint8_t     Application firmware ImageA&B FLASH address
     REG_0Fh[2]   RW   uint16_t    Exit bootloader & reset
                                   [7:0] delay time before exit
