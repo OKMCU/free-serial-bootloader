@@ -22,39 +22,20 @@
 
 3. Payload format in a packet
    > register SET: [type=0x01] [reg_addr] [byte0] [byte1] ... [byteN]
-   > register STS: [type=0x10] [reg_addr] [status_code]
    > register GET: [type=0x02] [reg_addr] [num_of_byte]
-   > register REP: [type=0x20] [reg_addr] [byte0] [byte1] ... [byteN]
+   > register STS: [type=0x10] [status_code]
+   > register REP: [type=0x20] [byte0] [byte1] ... [byteN]
 
      type       1-byte
                 packet payload type
                 0x01 = register SET, sent from HOST to DEVICE to set register data
                 0x02 = register GET, sent from HOST to DEVICE to get register data
-                0x10 = register STS, sent from DEVICE to HOST to inform HOST command processing status after a SET operation
+                0x10 = register STS, sent from DEVICE to HOST to inform HOST command processing status after a SET/GET operation
                 0x20 = register REP, sent from DEVICE to HOST to reply the register data after a GET operation
 
     status code
-                [7]   STS_BUSY
-                [6]   STS_FAIL
-                [5:0] Last operation status
-                      > STS_BUSY=1, STS_FAIL=X (IN PROGRESS)
-                      00h=Reserved
-                      01h=CMD is captured but not processed
-                      02h=CMD checking is in progress
-                      03h=CMD execution is in progress
-                      04h-3Fh=Reserved
-                      > STS BUSY=0, STS_FAIL=0 (SUCCESS)
-                      00h=Reserved
-                      01h=CMD completed successfully without specific message
-                      02h-3Fh=Reserved
-                      > STS_BUSY=0, STS_FAIL=1 (FAILED)
-                      00h=Reserved
-                      01h=Unknown error
-                      02h=Parameter range error or not supported
-                      03h-0Fh=Reserved
-                      10-1Fh=FLASH operation error code
-                      20-2Fh=EEPROM operation error code
-                      30-3Fh=Reserved
+                [7]   1=failure, 0=success
+                [6:0] error code
 4. Register memory map
     // MCU information & bootloader control
     REG_00h[128] RO   ASCII       MCU Part Number
@@ -102,12 +83,11 @@
     REG_26h[4]   RO   uint32_t    Max. EEPROM mass erase time
 
     // FLASH operation
-    REG_30h[1]   RW   uint8_t     FLASH erase/verify
+    REG_30h[1]   WO   uint8_t     FLASH erase/verify
                                   write 0x81 = erase full chip FLASH
                                   write 0x82 = erase selected FLASH sector
                                   write 0x01 = calculate CRC-8 of full chip FLASH
                                   write 0x02 = calculate CRC-8 of the selected FLASH sector
-                                  read  0x00 = FLASH operation done
     REG_31h[4]   RW               FLASH sector select
     REG_32h[4]   RO               FLASH sector start address
     REG_33h[4]   RO               FLASH sector size
@@ -117,12 +97,11 @@
     REG_37h[128] RW   uint8_t[]   RD FLASH data
 
     // EEPROM operation
-    REG_40h[1]   RW   uint8_t     EEPROM erase/verify
+    REG_40h[1]   WO   uint8_t     EEPROM erase/verify
                                   write 0x81 = erase full chip EEPROM
                                   write 0x82 = erase selected EEPROM sector
                                   write 0x01 = calculate CRC-8 of full chip EEPROM
                                   write 0x02 = calculate CRC-8 of the selected EEPROM sector
-                                  read  0x00 = EEPROM operation done
     REG_41h[4]   RW               EEPROM sector select
     REG_42h[4]   RO               EEPROM sector start address
     REG_43h[4]   RO               EEPROM sector size

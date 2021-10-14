@@ -30,9 +30,14 @@
 #define PACKET_PAYLOAD_REGADDR_INDEX        (PACKET_PAYLOAD_START_INDEX+1)
 
 #define PAYLOAD_TYPE_SET                    0x01
-#define PAYLOAD_TYPE_STS                    0x10
 #define PAYLOAD_TYPE_GET                    0x02
+#define PAYLOAD_TYPE_STS                    0x10
 #define PAYLOAD_TYPE_REP                    0x20
+
+#define STS_SUCCESS                         0x00
+#define STS_FAILURE_GENERIC                 (0x80|0x00)
+#define STS_FAILURE_WRONG_CRC               (0x80|0x01)
+#define STS_FAILURE_WRONG_TYPE              (0x80|0x02)
 
 /* Private typedef -----------------------------------------------------------*/
 typedef struct uart_rx_buffer {
@@ -40,6 +45,12 @@ typedef struct uart_rx_buffer {
     uint16_t head;
     uint16_t tail;
 } uart_rx_buffer_t;
+typedef struct payload {
+    uint8_t type;
+    uint8_t reg_addr;
+    uint8_t size;
+    uint8_t *reg_data;
+} payload_t;
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 static volatile uart_rx_buffer_t rb;
@@ -68,54 +79,65 @@ static uint8_t calc_crc8(uint8_t crc, uint8_t *p_buf, uint32_t size)
     return 0x00;
 }
 
-static void send_packet_reg_sts_payload(uint8_t reg_addr, uint8_t sts_code)
+static void send_packet_reg_sts_payload(uint8_t sts_code)
 {
-    uint8_t pkt[6], i;
+    uint8_t pkt[5], i;
 
     pkt[0] = DEV_PACKET_START_BYTE;
-    pkt[1] = 3;
+    pkt[1] = 2;
     pkt[2] = PAYLOAD_TYPE_STS;
-    pkt[3] = reg_addr;
-    pkt[4] = sts_code;
-    pkt[5] = calc_crc8(0x00, pkt+2, pkt[1]);
+    pkt[3] = sts_code;
+    pkt[4] = calc_crc8(0x00, pkt+2, 2);
 
-    for(i = 0; i < 3+pkt[1]; i++)
+    for(i = 0; i < sizeof(pkt); i++)
     {
         hal_uart_send(pkt[i]);
     }
 }
 
-static void send_packet_reg_rep_payload(uint8_t reg_addr, uint8_t *p_buf, uint8_t size)
+static void send_packet_reg_rep_payload(uint8_t reg_addr, uint8_t *reg_data, uint8_t size)
 {
-    uint8_t pkt[133], i;
+    uint8_t b[2], i, crc = 0x00;
     if(size > 128) size = 128;
-    pkt[0] = DEV_PACKET_START_BYTE;
-    pkt[1] = 2+size;
-    pkt[2] = PAYLOAD_TYPE_REP;
-    pkt[3] = reg_addr;
+    crc = calc_crc8(crc, b, 2);
+    crc = calc_crc8(crc, reg_data, size);
+    hal_uart_send(DEV_PACKET_START_BYTE);
+    hal_uart_send(2+size);
+    hal_uart_send(PAYLOAD_TYPE_REP);
+    hal_uart_send(reg_addr);
     for(i = 0; i < size; i++)
     {
-        pkt[4+i] = p_buf[i];
+        hal_uart_send(reg_data[i]);
     }
-    pkt[4+i] = calc_crc8(0x00, pkt+2, pkt[1]);
-
-    for(i = 0; i < 3+pkt[1]; i++)
-    {
-        hal_uart_send(pkt[i]);
-    }
+    hal_uart_send(crc);
 }
 
 static void on_recv_packet(const uint8_t *pkt, uint8_t pkt_length)
 {
     uint8_t crc;
+    uint8_t *payload;
+    uint8_t payload_length;
+    payload = pkt+PACKET_PAYLOAD_START_INDEX;
+    payload_length = pkt[PACKET_LENGTH_INDEX];
+    crc = pkt[pkt_length-1];
 
-    crc = calc_crc8(0x00, pkt+PACKET_PAYLOAD_START_INDEX, pkt[PACKET_LENGTH_INDEX]);
-    if(crc == pkt[pkt_length-1])
+    if(crc == calc_crc8(0x00, payload, payload_length))
     {
-
+        if(pkt[PACKET_PAYLOAD_TYPE_INDEX] == PAYLOAD_TYPE_SET)
+        {
+            send_packet_reg_sts_payload(pkt[PACKET_PAYLOAD_REGADDR_INDEX], STS_BUSY_CMD_CAPTURED);
+        }
+        else if(pkt[PACKET_PAYLOAD_TYPE_INDEX] == PAYLOAD_TYPE_GET)
+        {
+        }
+        else
+        {
+            send_packet_reg_sts_payload(pkt[PACKET_PAYLOAD_REGADDR_INDEX], STS_FAIL_PARAM_NOT_SUPPORTED);
+        }
     }
     else
     {
+        send_packet_reg_sts_payload(pkt[PACKET_PAYLOAD_REGADDR_INDEX], STS_FAILURE_WRONG_CRC);
     }
 }
 
@@ -181,7 +203,7 @@ void bootloader_service(void)
             else if(packet_rxcnt == PACKET_LENGTH_INDEX)
             {
                 packet_buffer[packet_rxcnt++] = rx_byte;
-                if(rx_byte > 130 || rx_byte < 2)
+                if(rx_byte > 128+2 || rx_byte < 2)
                 {
                     packet_rxcnt = 0;
                 }
