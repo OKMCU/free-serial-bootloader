@@ -29,22 +29,22 @@
 #define PACKET_PAYLOAD_TYPE_INDEX           (PACKET_PAYLOAD_START_INDEX+0)
 #define PACKET_PAYLOAD_REGADDR_INDEX        (PACKET_PAYLOAD_START_INDEX+1)
 
-#define PAYLOAD_TYPE_SET                    0x01
-#define PAYLOAD_TYPE_GET                    0x02
-#define PAYLOAD_TYPE_STS                    0x10
-#define PAYLOAD_TYPE_REP                    0x20
+#define PAYLOAD_TYPE_SET                    0x00
+#define PAYLOAD_TYPE_GET                    0x01
 
 #define STS_SUCCESS                         0x00
 #define STS_FAILURE_GENERIC                 (0x80|0x00)
 #define STS_FAILURE_WRONG_CRC               (0x80|0x01)
 #define STS_FAILURE_WRONG_TYPE              (0x80|0x02)
 
+#define REG_ADDR_STATUS                     0x0E
 /* Private typedef -----------------------------------------------------------*/
 typedef struct uart_rx_buffer {
     uint8_t data[HAL_UART_BUF_SIZE];
     uint16_t head;
     uint16_t tail;
 } uart_rx_buffer_t;
+
 typedef struct payload {
     uint8_t type;
     uint8_t reg_addr;
@@ -79,31 +79,17 @@ static uint8_t calc_crc8(uint8_t crc, uint8_t *p_buf, uint32_t size)
     return 0x00;
 }
 
-static void send_packet_reg_sts_payload(uint8_t sts_code)
-{
-    uint8_t pkt[5], i;
-
-    pkt[0] = DEV_PACKET_START_BYTE;
-    pkt[1] = 2;
-    pkt[2] = PAYLOAD_TYPE_STS;
-    pkt[3] = sts_code;
-    pkt[4] = calc_crc8(0x00, pkt+2, 2);
-
-    for(i = 0; i < sizeof(pkt); i++)
-    {
-        hal_uart_send(pkt[i]);
-    }
-}
-
-static void send_packet_reg_rep_payload(uint8_t reg_addr, uint8_t *reg_data, uint8_t size)
+static void send_packet_reg_set(uint8_t reg_addr, uint8_t *reg_data, uint8_t size)
 {
     uint8_t b[2], i, crc = 0x00;
     if(size > 128) size = 128;
+    b[0] = PAYLOAD_TYPE_SET;
+    b[1] = reg_addr;
     crc = calc_crc8(crc, b, 2);
     crc = calc_crc8(crc, reg_data, size);
     hal_uart_send(DEV_PACKET_START_BYTE);
     hal_uart_send(2+size);
-    hal_uart_send(PAYLOAD_TYPE_REP);
+    hal_uart_send(PAYLOAD_TYPE_SET);
     hal_uart_send(reg_addr);
     for(i = 0; i < size; i++)
     {
@@ -137,7 +123,7 @@ static void on_recv_packet(const uint8_t *pkt, uint8_t pkt_length)
     }
     else
     {
-        send_packet_reg_sts_payload(pkt[PACKET_PAYLOAD_REGADDR_INDEX], STS_FAILURE_WRONG_CRC);
+        send_packet_reg_set(REG_ADDR_STATUS, STS_FAILURE_WRONG_CRC);
     }
 }
 
@@ -221,7 +207,7 @@ void bootloader_service(void)
             {
                 if(rx_byte == HST_HANDSHAKING_BYTE)
                 {
-                    handshaking_cnt++;
+                    if(handshaking_cnt < UINT8_MAX) handshaking_cnt++;
                     if(handshaking_cnt >= HANDSHAKING_SUCCESS_THRE)
                     {
                         /* handshaking success */

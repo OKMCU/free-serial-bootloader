@@ -4,39 +4,29 @@
    HOST can confirm that DEVICE is ready when receives 0xAA and can continue the communication.
 
 2. Packet format (in hex) in communication between HOST and DEVICE
-     {start} {length} {payload} {crc8}
+     {start} {crc8} {type} {cmd_addr} {cmd_status} {length} {payload}
 
-     {start}    1 byte
-                0xAA if packet is from HOST to DEVICE
-                0x55 if packet is from DEVICE to HOST
+     {start}         1 byte
+                     0xAA if packet is from HOST to DEVICE
+                     0x55 if packet is from DEVICE to HOST
+     {crc8}          1 byte
+                     crc8 of the packet except {start} and {crc8}
+                     crc8 = 0x00 means bypass CRC checking
+     {type}          1 byte
+                     0x01 = register SET
+                     0x02 = register GET
+     {cmd_addr}      1 byte
+     {cmd_status}    1 byte
+                     0x00: Invalid and can be ignored
+                     0x01: SUCCESS
+                     0x80: Generic Error
+                     0x81: CRC error
+     {length}        1 bytes
+                     number of bytes in payload
+     {data}          0~128 bytes
+                     payload
 
-     {length}   1 byte
-                number of bytes in payload
-
-     {payload}  1~128 bytes
-                payload of the packet
-
-     {crc8}     1 byte
-                crc8 of payload part
-                crc8 = 0x00 means bypass CRC checking
-
-3. Payload format in a packet
-   > register SET: [type=0x01] [reg_addr] [byte0] [byte1] ... [byteN]
-   > register GET: [type=0x02] [reg_addr] [num_of_byte]
-   > register STS: [type=0x10] [status_code]
-   > register REP: [type=0x20] [byte0] [byte1] ... [byteN]
-
-     type       1-byte
-                packet payload type
-                0x01 = register SET, sent from HOST to DEVICE to set register data
-                0x02 = register GET, sent from HOST to DEVICE to get register data
-                0x10 = register STS, sent from DEVICE to HOST to inform HOST command processing status after a SET/GET operation
-                0x20 = register REP, sent from DEVICE to HOST to reply the register data after a GET operation
-
-    status code
-                [7]   1=failure, 0=success
-                [6:0] error code
-4. Register memory map
+3. Register memory map
     // MCU information & bootloader control
     REG_00h[128] RO   ASCII       MCU Part Number
     REG_01h[128] RO   ASCII       MCU UUID
@@ -44,7 +34,6 @@
     REG_03h[4]   RO   uint32_t    Bootloader start FLASH address
     REG_04h[4]   RO   uint32_t    Bootloader size
 
-    REG_0Eh[8]   RW   uint8_t     Application firmware ImageA&B FLASH address
     REG_0Fh[2]   RW   uint16_t    Exit bootloader & reset
                                   [7:0] delay time before exit
 
@@ -110,6 +99,6 @@
     REG_46h[4]   RW   uint32_t    RD EEPROM address offset pointer (auto increase)
     REG_47h[128] RW   uint8_t[]   RD EEPROM data
 
-5. Enter bootloader command
+4. Enter bootloader command
    "bootloader -p {%s}\r\n"
 
