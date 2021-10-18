@@ -23,40 +23,48 @@
 #define HST_PACKET_START_BYTE               0xAA
 #define DEV_PACKET_START_BYTE               0x55
 
-#define PACKET_START_INDEX                  0
-#define PACKET_LENGTH_INDEX                 1
-#define PACKET_PAYLOAD_START_INDEX          2
-#define PACKET_PAYLOAD_TYPE_INDEX           (PACKET_PAYLOAD_START_INDEX+0)
-#define PACKET_PAYLOAD_REGADDR_INDEX        (PACKET_PAYLOAD_START_INDEX+1)
+#define PKT_HDR_IDX_START                   0
+#define PKT_HDR_IDX_CRC8                    1
+#define PKT_HDR_IDX_TYPE                    2
+#define PKT_HDR_IDX_REGADDR                 3
+#define PKT_HDR_IDX_STATUS                  4
+#define PKT_HDR_IDX_LENGTH                  5
+#define PKT_HDR_SIZE                        6
 
-#define PAYLOAD_TYPE_SET                    0x00
-#define PAYLOAD_TYPE_GET                    0x01
+#define TYPE_SET                            0x01
+#define TYPE_GET                            0x02
 
-#define STS_SUCCESS                         0x00
-#define STS_FAILURE_GENERIC                 (0x80|0x00)
-#define STS_FAILURE_WRONG_CRC               (0x80|0x01)
-#define STS_FAILURE_WRONG_TYPE              (0x80|0x02)
+#define STS_NA                              0x00
+#define STS_SUCCESS                         0x01
+#define STS_FAILURE_UNKNOWN_REG             (0x80|0x00)
 
-#define REG_ADDR_STATUS                     0x0E
 /* Private typedef -----------------------------------------------------------*/
-typedef struct uart_rx_buffer {
+typedef struct uart_rx_buffer_s {
     uint8_t data[HAL_UART_BUF_SIZE];
     uint16_t head;
     uint16_t tail;
 } uart_rx_buffer_t;
 
-typedef struct payload {
-    uint8_t type;
-    uint8_t reg_addr;
-    uint8_t size;
-    uint8_t *reg_data;
-} payload_t;
+typedef union packet_s {
+    uint8_t all[PKT_HDR_SIZE+128];
+    struct {
+        struct {
+            uint8_t start;
+            uint8_t crc8;
+            uint8_t type;
+            uint8_t reg_addr;
+            uint8_t status;
+            uint8_t length;
+        } header;
+        uint8_t payload[128];
+    } part;
+} packet_t;
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 static volatile uart_rx_buffer_t rb;
-static uint8_t packet_buffer[256];
 static uint8_t packet_rxcnt = 0;
 static uint8_t handshaking_cnt = 0;
+static packet_t packet;
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
 static void on_uart_recv_byte(uint8_t rx_byte)
@@ -79,51 +87,37 @@ static uint8_t calc_crc8(uint8_t crc, uint8_t *p_buf, uint32_t size)
     return 0x00;
 }
 
-static void send_packet_reg_set(uint8_t reg_addr, uint8_t *reg_data, uint8_t size)
+static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_t length, uint8_t *payload)
 {
-    uint8_t b[2], i, crc = 0x00;
-    if(size > 128) size = 128;
-    b[0] = PAYLOAD_TYPE_SET;
-    b[1] = reg_addr;
-    crc = calc_crc8(crc, b, 2);
-    crc = calc_crc8(crc, reg_data, size);
+    uint8_t i, crc = 0x00;
+    if(length > 128) return -1;
+    if(type != TYPE_SET && type!= TYPE_GET) return -1;
+
+    crc = calc_crc8(crc, &type, 1);
+    crc = calc_crc8(crc, &reg_addr, 1);
+    crc = calc_crc8(crc, &status, 1);
+    crc = calc_crc8(crc, &length, 1);
+    crc = calc_crc8(crc, &payload, length);
     hal_uart_send(DEV_PACKET_START_BYTE);
-    hal_uart_send(2+size);
-    hal_uart_send(PAYLOAD_TYPE_SET);
-    hal_uart_send(reg_addr);
-    for(i = 0; i < size; i++)
-    {
-        hal_uart_send(reg_data[i]);
-    }
     hal_uart_send(crc);
+    hal_uart_send(type);
+    hal_uart_send(reg_addr);
+    hal_uart_send(status);
+    hal_uart_send(length);
+    for(i = 0; i < length; i++)
+    {
+        hal_uart_send(payload[i]);
+    }
 }
 
-static void on_recv_packet(const uint8_t *pkt, uint8_t pkt_length)
+static void on_recv_packet(const packet_t *pkt)
 {
     uint8_t crc;
-    uint8_t *payload;
-    uint8_t payload_length;
-    payload = pkt+PACKET_PAYLOAD_START_INDEX;
-    payload_length = pkt[PACKET_LENGTH_INDEX];
-    crc = pkt[pkt_length-1];
 
-    if(crc == calc_crc8(0x00, payload, payload_length))
+    crc = calc_crc8(0x00, &(pkt->all[PKT_HDR_IDX_TYPE]), PKT_HDR_SIZE-2+pkt->part.header.length);
+    if(crc == pkt->part.header.crc8)
     {
-        if(pkt[PACKET_PAYLOAD_TYPE_INDEX] == PAYLOAD_TYPE_SET)
-        {
-            send_packet_reg_sts_payload(pkt[PACKET_PAYLOAD_REGADDR_INDEX], STS_BUSY_CMD_CAPTURED);
-        }
-        else if(pkt[PACKET_PAYLOAD_TYPE_INDEX] == PAYLOAD_TYPE_GET)
-        {
-        }
-        else
-        {
-            send_packet_reg_sts_payload(pkt[PACKET_PAYLOAD_REGADDR_INDEX], STS_FAIL_PARAM_NOT_SUPPORTED);
-        }
-    }
-    else
-    {
-        send_packet_reg_set(REG_ADDR_STATUS, STS_FAILURE_WRONG_CRC);
+        
     }
 }
 
@@ -178,33 +172,10 @@ void bootloader_service(void)
         {
             rx_byte = rb.data[head++];
             if(head >= HAL_UART_BUF_SIZE) head = 0;
-
-            if(packet_rxcnt == PACKET_START_INDEX)
+            packet.all[packet_rxcnt++];
+            if(packet_rxcnt == PKT_HDR_IDX_START)
             {
-                if(rx_byte == HST_PACKET_START_BYTE)
-                {
-                    packet_buffer[packet_rxcnt++] = rx_byte;
-                }
-            }
-            else if(packet_rxcnt == PACKET_LENGTH_INDEX)
-            {
-                packet_buffer[packet_rxcnt++] = rx_byte;
-                if(rx_byte > 128+2 || rx_byte < 2)
-                {
-                    packet_rxcnt = 0;
-                }
-            }
-            else
-            {
-                packet_buffer[packet_rxcnt++] = rx_byte;
-                if(packet_rxcnt >= packet_buffer[PACKET_LENGTH_INDEX]+3)
-                {
-                    on_recv_packet(packet_buffer, packet_rxcnt);
-                }
-            }
-
-            if(packet_rxcnt == PACKET_START_INDEX)
-            {
+                if(rx_byte != HST_PACKET_START_BYTE) packet_rxcnt = 0;
                 if(rx_byte == HST_HANDSHAKING_BYTE)
                 {
                     if(handshaking_cnt < UINT8_MAX) handshaking_cnt++;
@@ -217,6 +188,35 @@ void bootloader_service(void)
                 else
                 {
                     handshaking_cnt = 0;
+                }
+            }
+            else if(packet_rxcnt >= PKT_HDR_IDX_LENGTH)
+            {
+                if(packet.part.header.type == TYPE_GET)
+                {
+                    // received full GET command and process it
+                    on_recv_packet(&packet);
+                    packet_rxcnt = 0;
+                }
+                else if(packet.part.header.type == TYPE_SET)
+                {
+                    if(packet.part.header.length <= 128)
+                    {
+                        if(packet_rxcnt == PKT_HDR_SIZE+packet.part.header.length)
+                        {
+                            // received full SET command and process it
+                            on_recv_packet(&packet);
+                            packet_rxcnt = 0;
+                        }
+                    }
+                    else
+                    {
+                        packet_rxcnt = 0;
+                    }
+                }
+                else
+                {
+                    packet_rxcnt = 0;
                 }
             }
         }

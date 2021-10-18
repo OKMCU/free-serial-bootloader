@@ -4,7 +4,7 @@
    HOST can confirm that DEVICE is ready when receives 0xAA and can continue the communication.
 
 2. Packet format (in hex) in communication between HOST and DEVICE
-     {start} {crc8} {type} {cmd_addr} {cmd_status} {length} {payload}
+     {start} {crc8} {type} {reg_addr} {status} {length} {payload}
 
      {start}         1 byte
                      0xAA if packet is from HOST to DEVICE
@@ -15,8 +15,8 @@
      {type}          1 byte
                      0x01 = register SET
                      0x02 = register GET
-     {cmd_addr}      1 byte
-     {cmd_status}    1 byte
+     {reg_addr}      1 byte
+     {status}        1 byte
                      0x00: Invalid and can be ignored
                      0x01: SUCCESS
                      0x80: Generic Error
@@ -80,10 +80,8 @@
     REG_31h[4]   RW               FLASH sector select
     REG_32h[4]   RO               FLASH sector start address
     REG_33h[4]   RO               FLASH sector size
-    REG_34h[4]   RW   uint32_t    WR FLASH address offset pointer (auto increase)
-    REG_35h[128] RW   uint8_t[]   WR FLASH data
-    REG_36h[4]   RW   uint32_t    RD FLASH address offset pointer (auto increase)
-    REG_37h[128] RW   uint8_t[]   RD FLASH data
+    REG_34h[4]   RW   uint32_t    FLASH address offset pointer (auto increase)
+    REG_35h[128] RW   uint8_t[]   FLASH data
 
     // EEPROM operation
     REG_40h[1]   WO   uint8_t     EEPROM erase/verify
@@ -94,10 +92,8 @@
     REG_41h[4]   RW               EEPROM sector select
     REG_42h[4]   RO               EEPROM sector start address
     REG_43h[4]   RO               EEPROM sector size
-    REG_44h[4]   RW   uint32_t    WR EEPROM address offset pointer (auto increase)
-    REG_45h[128] RW   uint8_t[]   WR EEPROM data
-    REG_46h[4]   RW   uint32_t    RD EEPROM address offset pointer (auto increase)
-    REG_47h[128] RW   uint8_t[]   RD EEPROM data
+    REG_44h[4]   RW   uint32_t    EEPROM address offset pointer (auto increase)
+    REG_45h[128] RW   uint8_t[]   EEPROM data
 
 4. Enter bootloader command
    "bootloader -p {%s}\r\n"
