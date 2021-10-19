@@ -59,13 +59,111 @@ typedef union packet_s {
         uint8_t payload[128];
     } part;
 } packet_t;
+
+typedef struct reg_handler_s {
+    void (*p_fxn_set_reg)(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+    void (*p_fxn_get_reg)(uint8_t reg_addr, uint8_t length);
+} reg_handler_t;
 /* Private macro -------------------------------------------------------------*/
+/* Private function prototypes -----------------------------------------------*/
+static void set_reg_XXh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+static void set_reg_0Eh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+static void set_reg_0Fh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+static void set_reg_19h(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+static void set_reg_1Ch(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+static void set_reg_1Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+static void set_reg_29h(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+static void set_reg_2Ch(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+static void set_reg_2Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
+
+static void get_reg_XXh(uint8_t reg_addr, uint8_t length);
+static void get_reg_00h(uint8_t reg_addr, uint8_t length);
+static void get_reg_01h(uint8_t reg_addr, uint8_t length);
+static void get_reg_02h(uint8_t reg_addr, uint8_t length);
+static void get_reg_03h(uint8_t reg_addr, uint8_t length);
+static void get_reg_04h(uint8_t reg_addr, uint8_t length);
+static void get_reg_0Eh(uint8_t reg_addr, uint8_t length);
+static void get_reg_10h(uint8_t reg_addr, uint8_t length);
+static void get_reg_11h(uint8_t reg_addr, uint8_t length);
+static void get_reg_12h(uint8_t reg_addr, uint8_t length);
+static void get_reg_13h(uint8_t reg_addr, uint8_t length);
+static void get_reg_14h(uint8_t reg_addr, uint8_t length);
+static void get_reg_15h(uint8_t reg_addr, uint8_t length);
+static void get_reg_16h(uint8_t reg_addr, uint8_t length);
+static void get_reg_19h(uint8_t reg_addr, uint8_t length);
+static void get_reg_1Ah(uint8_t reg_addr, uint8_t length);
+static void get_reg_1Bh(uint8_t reg_addr, uint8_t length);
+static void get_reg_1Ch(uint8_t reg_addr, uint8_t length);
+static void get_reg_1Dh(uint8_t reg_addr, uint8_t length);
+static void get_reg_20h(uint8_t reg_addr, uint8_t length);
+static void get_reg_21h(uint8_t reg_addr, uint8_t length);
+static void get_reg_22h(uint8_t reg_addr, uint8_t length);
+static void get_reg_23h(uint8_t reg_addr, uint8_t length);
+static void get_reg_24h(uint8_t reg_addr, uint8_t length);
+static void get_reg_25h(uint8_t reg_addr, uint8_t length);
+static void get_reg_26h(uint8_t reg_addr, uint8_t length);
+static void get_reg_29h(uint8_t reg_addr, uint8_t length);
+static void get_reg_2Ah(uint8_t reg_addr, uint8_t length);
+static void get_reg_2Bh(uint8_t reg_addr, uint8_t length);
+static void get_reg_2Ch(uint8_t reg_addr, uint8_t length);
+static void get_reg_2Dh(uint8_t reg_addr, uint8_t length);
 /* Private variables ---------------------------------------------------------*/
 static volatile uart_rx_buffer_t rb;
 static uint8_t packet_rxcnt = 0;
 static uint8_t handshaking_cnt = 0;
 static packet_t packet;
-/* Private function prototypes -----------------------------------------------*/
+static const reg_handler_t hdl[] = {
+    {NULL,        get_reg_00h}, //00h
+    {NULL,        get_reg_01h}, //01h
+    {NULL,        get_reg_02h}, //02h
+    {NULL,        get_reg_03h}, //03h
+    {NULL,        get_reg_04h}, //04h
+    {NULL,        NULL       }, //05h
+    {NULL,        NULL       }, //06h
+    {NULL,        NULL       }, //07h
+    {NULL,        NULL       }, //08h
+    {NULL,        NULL       }, //09h
+    {NULL,        NULL       }, //0Ah
+    {NULL,        NULL       }, //0Bh
+    {NULL,        NULL       }, //0Ch
+    {NULL,        NULL       }, //0Dh
+    {set_reg_0Eh, get_reg_0Eh}, //0Eh
+    {set_reg_0Fh, NULL       }, //0Fh
+    {NULL,        get_reg_10h}, //10h
+    {NULL,        get_reg_11h}, //11h
+    {NULL,        get_reg_12h}, //12h
+    {NULL,        get_reg_13h}, //13h
+    {NULL,        get_reg_14h}, //14h
+    {NULL,        get_reg_15h}, //15h
+    {NULL,        get_reg_16h}, //16h
+    {NULL,        NULL       }, //17h
+    {set_reg_18h, NULL       }, //18h
+    {set_reg_19h, get_reg_19h}, //19h
+    {NULL,        get_reg_1Ah}, //1Ah
+    {NULL,        get_reg_1Bh}, //1Bh
+    {set_reg_1Ch, get_reg_1Ch}, //1Ch
+    {set_reg_1Dh, get_reg_1Dh}, //1Dh
+    {NULL,        NULL       }, //1Eh
+    {NULL,        NULL       }, //1Fh
+    {NULL,        get_reg_20h}, //20h
+    {NULL,        get_reg_21h}, //21h
+    {NULL,        get_reg_22h}, //22h
+    {NULL,        get_reg_23h}, //23h
+    {NULL,        get_reg_24h}, //24h
+    {NULL,        get_reg_25h}, //25h
+    {NULL,        get_reg_26h}, //26h
+    {NULL,        NULL       }, //27h
+    {set_reg_28h, NULL       }, //28h
+    {set_reg_29h, get_reg_29h}, //29h
+    {NULL,        get_reg_2Ah}, //2Ah
+    {NULL,        get_reg_2Bh}, //2Bh
+    {set_reg_2Ch, get_reg_2Ch}, //2Ch
+    {set_reg_2Dh, get_reg_2Dh}, //2Dh
+    {NULL,        NULL       }, //2Eh
+    {NULL,        NULL       }, //2Fh
+};
 /* Private functions ---------------------------------------------------------*/
 static void on_uart_recv_byte(uint8_t rx_byte)
 {
@@ -117,10 +215,164 @@ static void on_recv_packet(const packet_t *pkt)
     crc = calc_crc8(0x00, &(pkt->all[PKT_HDR_IDX_TYPE]), PKT_HDR_SIZE-2+pkt->part.header.length);
     if(crc == pkt->part.header.crc8)
     {
-        
+        if(pkt->part.header.type == TYPE_SET)
+        {
+            if(pkt->part.header.reg_addr < sizeof(hdl)/sizeof(hdl[0]))
+            {
+                if(hdl[pkt->part.header.reg_addr].p_fxn_set_reg != NULL)
+                    hdl[pkt->part.header.reg_addr].p_fxn_set_reg(pkt->part.header.reg_addr, pkt->part.payload, pkt->part.header.length);
+                else
+                    set_reg_XXh(pkt->part.header.reg_addr, pkt->part.payload, pkt->part.header.length);
+            }
+            else
+            {
+                set_reg_XXh(pkt->part.header.reg_addr, pkt->part.payload, pkt->part.header.length);
+            }
+        }
+        else if(pkt->part.header.type == TYPE_GET)
+        {
+            if(pkt->part.header.reg_addr < sizeof(hdl)/sizeof(hdl[0]))
+            {
+                if(hdl[pkt->part.header.reg_addr].p_fxn_get_reg != NULL)
+                    hdl[pkt->part.header.reg_addr].p_fxn_get_reg(pkt->part.header.reg_addr, pkt->part.header.length);
+                else
+                    get_reg_XXh(pkt->part.header.reg_addr, pkt->part.header.length);
+            }
+            else
+            {
+                get_reg_XXh(pkt->part.header.reg_addr, pkt->part.header.length);
+            }
+        }
     }
 }
 
+static void set_reg_XXh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+static void set_reg_0Eh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+static void set_reg_0Fh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+static void set_reg_19h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+static void set_reg_1Ch(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+static void set_reg_1Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+static void set_reg_29h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+static void set_reg_2Ch(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+static void set_reg_2Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
+{
+}
+
+static void get_reg_XXh(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_00h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_01h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_02h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_03h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_04h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_0Eh(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_10h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_11h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_12h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_13h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_14h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_15h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_16h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_19h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_1Ah(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_1Bh(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_1Ch(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_1Dh(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_20h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_21h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_22h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_23h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_24h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_25h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_26h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_29h(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_2Ah(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_2Bh(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_2Ch(uint8_t reg_addr, uint8_t length)
+{
+}
+static void get_reg_2Dh(uint8_t reg_addr, uint8_t length)
+{
+}
 /* Exported variables --------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/
 void bootloader_reset_handler(void)
