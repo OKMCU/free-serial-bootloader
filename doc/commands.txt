@@ -28,13 +28,17 @@
 
 3. Register memory map
     // MCU information & bootloader control
-    REG_00h[128] R/-  ASCII       MCU Part Number
-    REG_01h[128] R/-  ASCII       MCU UUID
-    REG_02h[3]   R/-  uint8_t[]   Bootloader Version
+    REG_00h[128] R/-  char[]      MCU Part Number
+    REG_01h[128] R/-  char[]      MCU UUID
+    REG_02h[4]   R/-  uint8_t[]   Bootloader Version
+                                  Byte[0] = Major Version
+                                  Byte[1] = Minor Version
+                                  Byte[2] = Build Version MSB
+                                  Byte[3] = Build Version LSB
     REG_03h[4]   R/-  uint32_t    Bootloader start FLASH address
     REG_04h[4]   R/-  uint32_t    Bootloader size
 
-    REG_0Eh[128] -/W  uint8_t[]   Password
+    REG_0Eh[128] -/W  char[]      Password
     REG_0Fh[2]   -/W  uint16_t    Exit bootloader & reset
                                   [7:0] delay time before exit
 

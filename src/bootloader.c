@@ -16,7 +16,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "hal.h"
 /* Private define ------------------------------------------------------------*/
-#define HAL_UART_BUF_SIZE                   1024
+#define UART_BUF_SIZE                       1024
 #define HST_HANDSHAKING_BYTE                0x55
 #define DEV_HANDSHAKING_BYTE                0xAA
 #define HANDSHAKING_SUCCESS_THRE            16
@@ -37,10 +37,11 @@
 #define STS_NA                              0x00
 #define STS_SUCCESS                         0x01
 #define STS_FAILURE_UNKNOWN_REG             (0x80|0x00)
+#define STS_FAILURE_WRONG_LENGTH            (0x80|0x01)
 
 /* Private typedef -----------------------------------------------------------*/
 typedef struct uart_rx_buffer_s {
-    uint8_t data[HAL_UART_BUF_SIZE];
+    uint8_t data[UART_BUF_SIZE];
     uint16_t head;
     uint16_t tail;
 } uart_rx_buffer_t;
@@ -65,6 +66,20 @@ typedef struct reg_handler_s {
     void (*p_fxn_get_reg)(uint8_t reg_addr, uint8_t length);
 } reg_handler_t;
 /* Private macro -------------------------------------------------------------*/
+#define BREAK_UINT32(var, ByteNum) \
+          (uint8_t)((uint32_t)(((var) >>((ByteNum) * 8)) & 0x00FF))
+
+#define BUILD_UINT32(Byte0, Byte1, Byte2, Byte3) \
+          ((uint32_t)((uint32_t)((Byte0) & 0x00FF) \
+          + ((uint32_t)((Byte1) & 0x00FF) << 8) \
+          + ((uint32_t)((Byte2) & 0x00FF) << 16) \
+          + ((uint32_t)((Byte3) & 0x00FF) << 24)))
+
+#define BUILD_UINT16(loByte, hiByte) \
+          ((uint16_t)(((loByte) & 0x00FF) + (((hiByte) & 0x00FF) << 8)))
+
+#define HI_UINT16(a) (((a) >> 8) & 0xFF)
+#define LO_UINT16(a) ((a) & 0xFF)
 /* Private function prototypes -----------------------------------------------*/
 static void set_reg_XXh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
 static void set_reg_0Eh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
@@ -172,7 +187,7 @@ static void on_uart_recv_byte(uint8_t rx_byte)
     curr_head = rb.head;
     curr_tail = rb.tail;
     next_tail = curr_tail+1;
-    if(next_tail >= HAL_UART_BUF_SIZE) next_tail = 0;
+    if(next_tail >= UART_BUF_SIZE) next_tail = 0;
     if(next_tail != curr_head)
     {
         rb.data[curr_tail] = rx_byte;
@@ -180,12 +195,12 @@ static void on_uart_recv_byte(uint8_t rx_byte)
     }
 }
 
-static uint8_t calc_crc8(uint8_t crc, uint8_t *p_buf, uint32_t size)
+static uint8_t calc_crc8(uint8_t crc, void *p_buf, uint32_t size)
 {
     return 0x00;
 }
 
-static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_t length, uint8_t *payload)
+static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_t length, void *payload)
 {
     uint8_t i, crc = 0x00;
     if(length > 128) return -1;
@@ -195,7 +210,8 @@ static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_
     crc = calc_crc8(crc, &reg_addr, 1);
     crc = calc_crc8(crc, &status, 1);
     crc = calc_crc8(crc, &length, 1);
-    crc = calc_crc8(crc, &payload, length);
+    if(length > 0)
+        crc = calc_crc8(crc, payload, length);
     hal_uart_send(DEV_PACKET_START_BYTE);
     hal_uart_send(crc);
     hal_uart_send(type);
@@ -204,8 +220,10 @@ static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_
     hal_uart_send(length);
     for(i = 0; i < length; i++)
     {
-        hal_uart_send(payload[i]);
+        hal_uart_send(((uint8_t *)payload)[i]);
     }
+
+    return 0;
 }
 
 static void on_recv_packet(const packet_t *pkt)
@@ -248,6 +266,7 @@ static void on_recv_packet(const packet_t *pkt)
 
 static void set_reg_XXh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
+    send_packet(TYPE_SET, reg_addr, STS_FAILURE_UNKNOWN_REG, 0, NULL);
 }
 static void set_reg_0Eh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
@@ -282,21 +301,69 @@ static void set_reg_2Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 
 static void get_reg_XXh(uint8_t reg_addr, uint8_t length)
 {
+    send_packet(TYPE_SET, reg_addr, STS_FAILURE_UNKNOWN_REG, 0, NULL);
 }
 static void get_reg_00h(uint8_t reg_addr, uint8_t length)
 {
+    char payload[128];
+    uint8_t l;
+    memset(payload, 0, sizeof(payload));
+    l = strlen(MCU_PART_NUMBER);
+    memcpy(payload, MCU_PART_NUMBER, l);
+    if(length >= l && length <= 128)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, l, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_01h(uint8_t reg_addr, uint8_t length)
 {
+    char payload[128];
+    uint8_t l;
+    memset(payload, 0, sizeof(payload));
+    l = hal_mcu_get_uuid(payload, sizeof(payload));
+    if(length >= l && length <= 128)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, l, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_02h(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4] = {
+        BLDR_PROG_MAJOR_VER, 
+        BLDR_PROG_MINOR_VER, 
+        HI_UINT16(BLDR_PROG_BUILD_VER), 
+        LO_UINT16(BLDR_PROG_BUILD_VER)
+    };
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_03h(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4] = {
+        BREAK_UINT32(BLDR_PROG_FLASH_ADDR, 3),
+        BREAK_UINT32(BLDR_PROG_FLASH_ADDR, 2),
+        BREAK_UINT32(BLDR_PROG_FLASH_ADDR, 1),
+        BREAK_UINT32(BLDR_PROG_FLASH_ADDR, 0)
+    };
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_04h(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4] = {
+        BREAK_UINT32(BLDR_PROG_SIZE, 3),
+        BREAK_UINT32(BLDR_PROG_SIZE, 2),
+        BREAK_UINT32(BLDR_PROG_SIZE, 1),
+        BREAK_UINT32(BLDR_PROG_SIZE, 0)
+    };
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_0Eh(uint8_t reg_addr, uint8_t length)
 {
@@ -423,7 +490,7 @@ void bootloader_service(void)
         while(head != tail)
         {
             rx_byte = rb.data[head++];
-            if(head >= HAL_UART_BUF_SIZE) head = 0;
+            if(head >= UART_BUF_SIZE) head = 0;
             packet.all[packet_rxcnt++];
             if(packet_rxcnt == PKT_HDR_IDX_START)
             {

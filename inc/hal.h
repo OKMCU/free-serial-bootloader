@@ -30,7 +30,7 @@ void hal_enter_critical(void);
 void hal_exit_critical(void);
 void hal_reset(void);
 void hal_jump_to_addr(uint32_t addr);
-void hal_mcu_get_uuid(char *p_buf, uint8_t size);
+uint8_t hal_mcu_get_uuid(char *p_uuid, uint8_t size);
 
 int8_t hal_wdg_config(uint16_t timeout);
 int8_t hal_wdg_start(void);
