@@ -444,12 +444,12 @@ static void get_reg_2Dh(uint8_t reg_addr, uint8_t length)
 /* Exported functions --------------------------------------------------------*/
 void bootloader_reset_handler(void)
 {
-    uint32_t bldr_signature;
+    uint32_t signature;
     uint32_t appl;
     /* read bootloader signature to check if APPCODE has been commited */
-    if(hal_eep_read(EEPROM_ADDR_BLDR_SIGNATURE, &bldr_signature, 4) == HAL_OK)
+    if(hal_eep_read(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &signature, sizeof(signature)) == HAL_OK)
     {
-        if(bldr_signature == BLDR_SIGNATURE)
+        if(signature == COMMIT_IMG_SIGNATUR)
         {
             /* read first 4 bytes at starting address of APPCODE */
             if(hal_fmc_read(FLASH_ADDR_APPCODE_START, &appl, 4) == HAL_OK)

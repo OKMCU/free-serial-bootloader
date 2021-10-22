@@ -75,15 +75,7 @@
     REG_20h[4]   R/-  uint32_t    EEPROM start address
     REG_21h[4]   R/-  uint32_t    EEPROM size
     REG_22h[4]   R/-  uint32_t    number of EEPROM sectors
-    REG_23h[4]   R/-  uint32_t    supported EEPROM program width
-                                  [7] WR uint64_t
-                                  [6] WR uint32_t
-                                  [5] WR uint16_t
-                                  [4] WR uint8_t
-                                  [3] RD uint64_t
-                                  [2] RD uint32_t
-                                  [1] RD uint16_t
-                                  [0] RD uint8_t
+    REG_23h[4]   R/-  uint32_t    Reserved
     REG_24h[4]   R/-  uint32_t    Max. EEPROM sector erase time
     REG_25h[4]   R/-  uint32_t    Max. EEPROM sector program time
     REG_26h[4]   R/-  uint32_t    Max. EEPROM mass erase time
