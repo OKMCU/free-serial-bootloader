@@ -65,6 +65,13 @@ typedef struct reg_handler_s {
     void (*p_fxn_set_reg)(uint8_t reg_addr, uint8_t *payload, uint8_t length);
     void (*p_fxn_get_reg)(uint8_t reg_addr, uint8_t length);
 } reg_handler_t;
+
+typedef struct nvm_ctrl_s {
+    int32_t sector_sel;
+    uint32_t start_addr;
+    uint32_t size;
+    uint32_t offset;
+} nvm_ctrl_t;
 /* Private macro -------------------------------------------------------------*/
 #define BREAK_UINT32(var, ByteNum) \
           (uint8_t)((uint32_t)(((var) >>((ByteNum) * 8)) & 0x00FF))
@@ -80,6 +87,8 @@ typedef struct reg_handler_s {
 
 #define HI_UINT16(a) (((a) >> 8) & 0xFF)
 #define LO_UINT16(a) ((a) & 0xFF)
+
+#define BIT(n)      (1<<n)
 /* Private function prototypes -----------------------------------------------*/
 static void set_reg_XXh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
 static void set_reg_0Eh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
@@ -99,14 +108,12 @@ static void get_reg_01h(uint8_t reg_addr, uint8_t length);
 static void get_reg_02h(uint8_t reg_addr, uint8_t length);
 static void get_reg_03h(uint8_t reg_addr, uint8_t length);
 static void get_reg_04h(uint8_t reg_addr, uint8_t length);
-static void get_reg_0Eh(uint8_t reg_addr, uint8_t length);
 static void get_reg_10h(uint8_t reg_addr, uint8_t length);
 static void get_reg_11h(uint8_t reg_addr, uint8_t length);
 static void get_reg_12h(uint8_t reg_addr, uint8_t length);
 static void get_reg_13h(uint8_t reg_addr, uint8_t length);
 static void get_reg_14h(uint8_t reg_addr, uint8_t length);
 static void get_reg_15h(uint8_t reg_addr, uint8_t length);
-static void get_reg_16h(uint8_t reg_addr, uint8_t length);
 static void get_reg_19h(uint8_t reg_addr, uint8_t length);
 static void get_reg_1Ah(uint8_t reg_addr, uint8_t length);
 static void get_reg_1Bh(uint8_t reg_addr, uint8_t length);
@@ -118,7 +125,6 @@ static void get_reg_22h(uint8_t reg_addr, uint8_t length);
 static void get_reg_23h(uint8_t reg_addr, uint8_t length);
 static void get_reg_24h(uint8_t reg_addr, uint8_t length);
 static void get_reg_25h(uint8_t reg_addr, uint8_t length);
-static void get_reg_26h(uint8_t reg_addr, uint8_t length);
 static void get_reg_29h(uint8_t reg_addr, uint8_t length);
 static void get_reg_2Ah(uint8_t reg_addr, uint8_t length);
 static void get_reg_2Bh(uint8_t reg_addr, uint8_t length);
@@ -129,6 +135,8 @@ static volatile uart_rx_buffer_t rb;
 static uint8_t packet_rxcnt = 0;
 static uint8_t handshaking_cnt = 0;
 static packet_t packet;
+static nvm_ctrl_t flash_ctrl = {.sector_sel = -1};
+static nvm_ctrl_t eeprom_ctrl = {.sector_sel = -1};
 static const reg_handler_t hdl[] = {
     {NULL,        get_reg_00h}, //00h
     {NULL,        get_reg_01h}, //01h
@@ -144,7 +152,7 @@ static const reg_handler_t hdl[] = {
     {NULL,        NULL       }, //0Bh
     {NULL,        NULL       }, //0Ch
     {NULL,        NULL       }, //0Dh
-    {set_reg_0Eh, get_reg_0Eh}, //0Eh
+    {set_reg_0Eh, NULL       }, //0Eh
     {set_reg_0Fh, NULL       }, //0Fh
     {NULL,        get_reg_10h}, //10h
     {NULL,        get_reg_11h}, //11h
@@ -152,7 +160,7 @@ static const reg_handler_t hdl[] = {
     {NULL,        get_reg_13h}, //13h
     {NULL,        get_reg_14h}, //14h
     {NULL,        get_reg_15h}, //15h
-    {NULL,        get_reg_16h}, //16h
+    {NULL,        NULL       }, //16h
     {NULL,        NULL       }, //17h
     {set_reg_18h, NULL       }, //18h
     {set_reg_19h, get_reg_19h}, //19h
@@ -168,7 +176,7 @@ static const reg_handler_t hdl[] = {
     {NULL,        get_reg_23h}, //23h
     {NULL,        get_reg_24h}, //24h
     {NULL,        get_reg_25h}, //25h
-    {NULL,        get_reg_26h}, //26h
+    {NULL,        NULL       }, //26h
     {NULL,        NULL       }, //27h
     {set_reg_28h, NULL       }, //28h
     {set_reg_29h, get_reg_29h}, //29h
@@ -342,10 +350,10 @@ static void get_reg_02h(uint8_t reg_addr, uint8_t length)
 static void get_reg_03h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
-        BREAK_UINT32(BLDR_PROG_FLASH_ADDR, 3),
-        BREAK_UINT32(BLDR_PROG_FLASH_ADDR, 2),
-        BREAK_UINT32(BLDR_PROG_FLASH_ADDR, 1),
-        BREAK_UINT32(BLDR_PROG_FLASH_ADDR, 0)
+        BREAK_UINT32(FLASH_ADDR_BLDR_START, 3),
+        BREAK_UINT32(FLASH_ADDR_BLDR_START, 2),
+        BREAK_UINT32(FLASH_ADDR_BLDR_START, 1),
+        BREAK_UINT32(FLASH_ADDR_BLDR_START, 0)
     };
     if(length == 4)
         send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
@@ -355,57 +363,163 @@ static void get_reg_03h(uint8_t reg_addr, uint8_t length)
 static void get_reg_04h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
-        BREAK_UINT32(BLDR_PROG_SIZE, 3),
-        BREAK_UINT32(BLDR_PROG_SIZE, 2),
-        BREAK_UINT32(BLDR_PROG_SIZE, 1),
-        BREAK_UINT32(BLDR_PROG_SIZE, 0)
+        BREAK_UINT32(FLASH_BLDR_SIZE, 3),
+        BREAK_UINT32(FLASH_BLDR_SIZE, 2),
+        BREAK_UINT32(FLASH_BLDR_SIZE, 1),
+        BREAK_UINT32(FLASH_BLDR_SIZE, 0)
     };
     if(length == 4)
         send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
     else
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
-static void get_reg_0Eh(uint8_t reg_addr, uint8_t length)
-{
-}
 static void get_reg_10h(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4] = {
+        BREAK_UINT32(FLASH_ADDR_START, 3),
+        BREAK_UINT32(FLASH_ADDR_START, 2),
+        BREAK_UINT32(FLASH_ADDR_START, 1),
+        BREAK_UINT32(FLASH_ADDR_START, 0)
+    };
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_11h(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4] = {
+        BREAK_UINT32(FLASH_TOTAL_SIZE, 3),
+        BREAK_UINT32(FLASH_TOTAL_SIZE, 2),
+        BREAK_UINT32(FLASH_TOTAL_SIZE, 1),
+        BREAK_UINT32(FLASH_TOTAL_SIZE, 0)
+    };
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_12h(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4] = {
+        BREAK_UINT32(FLASH_PAGE_NUM, 3),
+        BREAK_UINT32(FLASH_PAGE_NUM, 2),
+        BREAK_UINT32(FLASH_PAGE_NUM, 1),
+        BREAK_UINT32(FLASH_PAGE_NUM, 0)
+    };
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_13h(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload = (FLASH_PROG_QWORD<<7)|\
+                      (FLASH_PROG_DWORD<<6)|\
+                      (FLASH_PROG_WORD <<5)|\
+                      (FLASH_PROG_BYTE <<4)|\
+                      (FLASH_READ_QWORD<<3)|\
+                      (FLASH_READ_DWORD<<2)|\
+                      (FLASH_READ_WORD <<1)|\
+                      (FLASH_READ_BYTE <<0);
+    if(length == 1)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, &payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_14h(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4] = {
+        BREAK_UINT32(FLASH_PAGE_ERASE_TIME, 3),
+        BREAK_UINT32(FLASH_PAGE_ERASE_TIME, 2),
+        BREAK_UINT32(FLASH_PAGE_ERASE_TIME, 1),
+        BREAK_UINT32(FLASH_PAGE_ERASE_TIME, 0)
+    };
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_15h(uint8_t reg_addr, uint8_t length)
 {
-}
-static void get_reg_16h(uint8_t reg_addr, uint8_t length)
-{
+    uint8_t payload[4] = {
+        BREAK_UINT32(FLASH_PAGE_PROG_TIME, 3),
+        BREAK_UINT32(FLASH_PAGE_PROG_TIME, 2),
+        BREAK_UINT32(FLASH_PAGE_PROG_TIME, 1),
+        BREAK_UINT32(FLASH_PAGE_PROG_TIME, 0)
+    };
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_19h(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4];
+    payload[0] = BREAK_UINT32(flash_ctrl.sector_sel, 3);
+    payload[1] = BREAK_UINT32(flash_ctrl.sector_sel, 2);
+    payload[2] = BREAK_UINT32(flash_ctrl.sector_sel, 1);
+    payload[3] = BREAK_UINT32(flash_ctrl.sector_sel, 0);
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_1Ah(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4];
+    payload[0] = BREAK_UINT32(flash_ctrl.start_addr, 3);
+    payload[1] = BREAK_UINT32(flash_ctrl.start_addr, 2);
+    payload[2] = BREAK_UINT32(flash_ctrl.start_addr, 1);
+    payload[3] = BREAK_UINT32(flash_ctrl.start_addr, 0);
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_1Bh(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4];
+    payload[0] = BREAK_UINT32(flash_ctrl.size, 3);
+    payload[1] = BREAK_UINT32(flash_ctrl.size, 2);
+    payload[2] = BREAK_UINT32(flash_ctrl.size, 1);
+    payload[3] = BREAK_UINT32(flash_ctrl.size, 0);
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_1Ch(uint8_t reg_addr, uint8_t length)
 {
+    uint8_t payload[4];
+    payload[0] = BREAK_UINT32(flash_ctrl.offset, 3);
+    payload[1] = BREAK_UINT32(flash_ctrl.offset, 2);
+    payload[2] = BREAK_UINT32(flash_ctrl.offset, 1);
+    payload[3] = BREAK_UINT32(flash_ctrl.offset, 0);
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
 }
 static void get_reg_1Dh(uint8_t reg_addr, uint8_t length)
 {
 }
 static void get_reg_20h(uint8_t reg_addr, uint8_t length)
 {
+#if defined (FLASH_VIRTUAL_EEPROM_SIZE) && (FLASH_VIRTUAL_EEPROM_SIZE > 0)
+    uint8_t payload[4] = {
+        BREAK_UINT32(FLASH_ADDR_VIRTUAL_EEPROM_START, 3),
+        BREAK_UINT32(FLASH_ADDR_VIRTUAL_EEPROM_START, 2),
+        BREAK_UINT32(FLASH_ADDR_VIRTUAL_EEPROM_START, 1),
+        BREAK_UINT32(FLASH_ADDR_VIRTUAL_EEPROM_START, 0)
+    };
+    if(length == 4)
+        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    else
+        send_packet(TYPE_SET, reg_addr, STS_FAILURE_WRONG_LENGTH, 0, NULL);
+#else
+    send_packet(TYPE_SET, reg_addr, STS_FAILURE_UNKNOWN_REG, 0, NULL);
+#endif
 }
 static void get_reg_21h(uint8_t reg_addr, uint8_t length)
 {
@@ -420,9 +534,6 @@ static void get_reg_24h(uint8_t reg_addr, uint8_t length)
 {
 }
 static void get_reg_25h(uint8_t reg_addr, uint8_t length)
-{
-}
-static void get_reg_26h(uint8_t reg_addr, uint8_t length)
 {
 }
 static void get_reg_29h(uint8_t reg_addr, uint8_t length)
