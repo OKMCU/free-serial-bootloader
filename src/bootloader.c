@@ -19,7 +19,7 @@
 #define UART_BUF_SIZE                       1024
 #define HST_HANDSHAKING_BYTE                0x55
 #define DEV_HANDSHAKING_BYTE                0xAA
-#define HANDSHAKING_SUCCESS_THRE            16
+#define HANDSHAKING_SUCCESS_THRE            4
 #define HST_PACKET_START_BYTE               0xAA
 #define DEV_PACKET_START_BYTE               0x55
 
@@ -971,7 +971,8 @@ void bootloader_reset_handler(void)
 
 void bootloader_service(void)
 {
-    uint16_t head, tail, rx_byte;
+    uint8_t rx_byte;
+    uint16_t head, tail;
     uint32_t signature;
 
 #if defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
@@ -1024,26 +1025,33 @@ void bootloader_service(void)
             hal_exit_critical();
             head++;
             if(head >= UART_BUF_SIZE) head = 0;
-            packet.all[packet_rxcnt++];
             if(packet_rxcnt == PKT_HDR_IDX_START)
             {
-                if(rx_byte != HST_PACKET_START_BYTE) packet_rxcnt = 0;
-                if(rx_byte == HST_HANDSHAKING_BYTE)
+                if(rx_byte == HST_PACKET_START_BYTE)
                 {
-                    if(handshaking_cnt < UINT8_MAX) handshaking_cnt++;
-                    if(handshaking_cnt >= HANDSHAKING_SUCCESS_THRE)
-                    {
-                        /* handshaking success */
-                        hal_uart_send(DEV_HANDSHAKING_BYTE);
-                    }
+                    packet.all[packet_rxcnt++] = rx_byte;
+                    handshaking_cnt = 0;
                 }
                 else
                 {
-                    handshaking_cnt = 0;
+                    if(rx_byte == HST_HANDSHAKING_BYTE)
+                    {
+                        if(handshaking_cnt < UINT8_MAX) handshaking_cnt++;
+                        if(handshaking_cnt >= HANDSHAKING_SUCCESS_THRE)
+                        {
+                            /* handshaking success */
+                            hal_uart_send(DEV_HANDSHAKING_BYTE);
+                        }
+                    }
+                    else
+                    {
+                        handshaking_cnt = 0;
+                    }
                 }
             }
             else if(packet_rxcnt >= PKT_HDR_IDX_LENGTH)
             {
+                packet.all[packet_rxcnt] = rx_byte;
                 if(packet.part.header.type == TYPE_GET)
                 {
                     // received full GET command and process it
@@ -1054,6 +1062,7 @@ void bootloader_service(void)
                 {
                     if(packet.part.header.length <= 128)
                     {
+                        packet_rxcnt++;
                         if(packet_rxcnt == PKT_HDR_SIZE+packet.part.header.length)
                         {
                             // received full SET command and process it
@@ -1070,6 +1079,10 @@ void bootloader_service(void)
                 {
                     packet_rxcnt = 0;
                 }
+            }
+            else
+            {
+                packet.all[packet_rxcnt++] = rx_byte;
             }
         }
 

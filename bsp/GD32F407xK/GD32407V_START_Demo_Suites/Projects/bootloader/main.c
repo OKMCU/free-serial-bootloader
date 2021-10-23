@@ -69,22 +69,22 @@ int main(void)
     nvic_irq_enable(USART0_IRQn, 0, 0);
 
     /* enable COM GPIO clock */
-    rcu_periph_clock_enable(RCU_GPIOA);
+    rcu_periph_clock_enable(RCU_GPIOB);
     /* enable USART clock */
     rcu_periph_clock_enable(RCU_USART0);
 
     /* connect port to USARTx_Tx */
-    gpio_af_set(GPIOA, GPIO_AF_7, GPIO_PIN_9);
+    gpio_af_set(GPIOB, GPIO_AF_7, GPIO_PIN_6);
     /* connect port to USARTx_Rx */
-    gpio_af_set(GPIOA, GPIO_AF_7, GPIO_PIN_10);
+    gpio_af_set(GPIOB, GPIO_AF_7, GPIO_PIN_7);
 
     /* configure USART Tx as alternate function push-pull */
-    gpio_mode_set(GPIOA, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_9);
-    gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_9);
+    gpio_mode_set(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_6);
+    gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_6);
 
     /* configure USART Rx as alternate function push-pull */
-    gpio_mode_set(GPIOA, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_10);
-    gpio_output_options_set(GPIOA, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_10);
+    gpio_mode_set(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO_PIN_7);
+    gpio_output_options_set(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_7);
 
     bootloader_service();
     return 0;
