@@ -39,7 +39,7 @@ void bootloader_reset_handler(void);
   * @param  none
   * @retval none
   */
-void bootloader_service(void)
+void bootloader_service(void);
 
 #endif /* __BOOTLOADER_H */
 

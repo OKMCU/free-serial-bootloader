@@ -254,7 +254,7 @@ static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_
     return 0;
 }
 
-static void on_recv_packet(const packet_t *pkt)
+static void on_recv_packet(packet_t *pkt)
 {
     uint8_t crc;
 
@@ -324,7 +324,7 @@ static void set_reg_0Fh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_SIGNATURE, 0, NULL);
         return;
     }
-    if(hal_emc_write(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &s, sizeof(s)) != HAL_OK)
+    if(hal_eeprom_write(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &s, sizeof(s)) != HAL_OK)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
         return;
@@ -354,7 +354,7 @@ static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     switch(payload[0])
     {
         case 0x01:
-            if(hal_fmc_page_erase(fmc.page) != HAL_OK)
+            if(hal_flash_page_erase(fmc.page) != HAL_OK)
             {
                 send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
                 return;
@@ -363,7 +363,7 @@ static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
         return;
 
         case 0x02:
-            if(hal_fmc_page_info(fmc.page, &page_addr, &page_size) != HAL_OK)
+            if(hal_flash_page_info(fmc.page, &page_addr, &page_size) != HAL_OK)
             {
                 send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
                 return;
@@ -371,7 +371,7 @@ static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
             while(i < page_size)
             {
                 l = (i+sizeof(buf) < page_size) ? sizeof(buf) : (page_size-i);
-                if(hal_fmc_read(page_addr+i, buf, l) != HAL_OK)
+                if(hal_flash_read(page_addr+i, buf, l) != HAL_OK)
                 {
                     send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
                     return;
@@ -406,7 +406,7 @@ static void set_reg_19h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 
     page = (int32_t)BUILD_UINT32(payload[3], payload[2], payload[1], payload[0]);
 
-    if(hal_fmc_page_info(page, &addr, &size) != HAL_OK)
+    if(hal_flash_page_info(page, &addr, &size) != HAL_OK)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
         return;
@@ -450,7 +450,7 @@ static void set_reg_1Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
         return;
     }
 
-    if(hal_fmc_write(fmc.addr+fmc.offs, payload, length) != HAL_OK)
+    if(hal_flash_write(fmc.addr+fmc.offs, payload, length) != HAL_OK)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
         return;
@@ -481,7 +481,7 @@ static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     switch(payload[0])
     {
         case 0x01:
-            if(hal_emc_page_erase(emc.page) != HAL_OK)
+            if(hal_eeprom_page_erase(emc.page) != HAL_OK)
             {
                 send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
                 return;
@@ -490,7 +490,7 @@ static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
         return;
 
         case 0x02:
-            if(hal_emc_page_info(emc.page, &page_addr, &page_size) != HAL_OK)
+            if(hal_eeprom_page_info(emc.page, &page_addr, &page_size) != HAL_OK)
             {
                 send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
                 return;
@@ -498,7 +498,7 @@ static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
             while(i < page_size)
             {
                 l = (i+sizeof(buf) < page_size) ? sizeof(buf) : (page_size-i);
-                if(hal_emc_read(page_addr+i, buf, l) != HAL_OK)
+                if(hal_eeprom_read(page_addr+i, buf, l) != HAL_OK)
                 {
                     send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
                     return;
@@ -533,7 +533,7 @@ static void set_reg_29h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 
     page = (int32_t)BUILD_UINT32(payload[3], payload[2], payload[1], payload[0]);
 
-    if(hal_emc_page_info(page, &addr, &size) != HAL_OK)
+    if(hal_eeprom_page_info(page, &addr, &size) != HAL_OK)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
         return;
@@ -577,7 +577,7 @@ static void set_reg_2Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
         return;
     }
 
-    if(hal_emc_write(emc.addr+emc.offs, payload, length) != HAL_OK)
+    if(hal_eeprom_write(emc.addr+emc.offs, payload, length) != HAL_OK)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
         return;
@@ -796,7 +796,7 @@ static void get_reg_1Dh(uint8_t reg_addr, uint8_t length)
         return;
     }
 
-    if(hal_fmc_read(fmc.addr+fmc.offs, payload, length) != HAL_OK)
+    if(hal_flash_read(fmc.addr+fmc.offs, payload, length) != HAL_OK)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
         return;
@@ -936,7 +936,7 @@ static void get_reg_2Dh(uint8_t reg_addr, uint8_t length)
         return;
     }
 
-    if(hal_emc_read(emc.addr+emc.offs, payload, length) != HAL_OK)
+    if(hal_eeprom_read(emc.addr+emc.offs, payload, length) != HAL_OK)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
         return;
@@ -951,12 +951,12 @@ void bootloader_reset_handler(void)
     uint32_t signature;
     uint32_t appl;
     /* read bootloader signature to check if APPCODE has been commited */
-    if(hal_emc_read(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &signature, sizeof(signature)) == HAL_OK)
+    if(hal_eeprom_read(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &signature, sizeof(signature)) == HAL_OK)
     {
         if(signature == COMMIT_IMG_SIGNATURE)
         {
             /* read first 4 bytes at starting address of APPCODE */
-            if(hal_fmc_read(FLASH_ADDR_APPCODE_START, &appl, 4) == HAL_OK)
+            if(hal_flash_read(FLASH_ADDR_APPCODE_START, &appl, 4) == HAL_OK)
             {
                 /* confirm APPCODE exists */
                 if(appl != 0xFFFFFFFF)
@@ -974,22 +974,26 @@ void bootloader_service(void)
     uint16_t head, tail, rx_byte;
     uint32_t signature;
 
+#if defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
     hal_wdg_config(HAL_WDG_TIMEOUT);
     hal_wdg_start();
-    if(hal_emc_read(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &signature, sizeof(signature)) == HAL_OK)
+#endif // defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
+    if(hal_eeprom_read(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &signature, sizeof(signature)) == HAL_OK)
     {
         if(signature == COMMIT_IMG_SIGNATURE)
         {
             signature = 0xFFFFFFFF;
-            hal_emc_write(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &signature, sizeof(signature));
+            hal_eeprom_write(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &signature, sizeof(signature));
         }
     }
-    hal_uart_config(HAL_UART_BAUDRATE, &uart_cb);
+    hal_uart_init(&uart_cb, HAL_UART_BAUDRATE);
 
     while(1)
     {
         /* refresh watch dog counter */
+#if defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
         hal_wdg_refresh();
+#endif // defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
 
         hal_enter_critical();
         if(uart_err)
