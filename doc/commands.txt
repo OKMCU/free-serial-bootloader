@@ -54,16 +54,16 @@
                                   [2] RD Double Word
                                   [1] RD Word
                                   [0] RD Byte
-    REG_14h[4]   R/-  uint32_t    Max. FLASH sector erase time
-    REG_15h[4]   R/-  uint32_t    Max. FLASH sector program time
+    REG_14h[4]   R/-  uint32_t    Max. FLASH page erase time
+    REG_15h[4]   R/-  uint32_t    Max. FLASH page program time
 
     // FLASH operation
     REG_18h[1]   -/W  uint8_t     FLASH erase/verify
-                                  write 0x01 = erase selected FLASH sector
-                                  write 0x02 = calculate CRC-8 of the selected FLASH sector
-    REG_19h[4]   R/W  int32_t     FLASH sector select
-    REG_1Ah[4]   R/-  uint32_t    FLASH sector start address
-    REG_1Bh[4]   R/-  uint32_t    FLASH sector size
+                                  write 0x01 = erase selected FLASH page
+                                  write 0x02 = calculate CRC-8 of the selected FLASH page
+    REG_19h[4]   R/W  int32_t     FLASH page select
+    REG_1Ah[4]   R/-  uint32_t    FLASH page start address
+    REG_1Bh[4]   R/-  uint32_t    FLASH page size
     REG_1Ch[4]   R/W  uint32_t    FLASH address offset pointer (auto increase)
     REG_1Dh[128] R/W  uint8_t[]   FLASH data
 
@@ -72,16 +72,16 @@
     REG_21h[4]   R/-  uint32_t    EEPROM size
     REG_22h[4]   R/-  uint32_t    number of EEPROM sectors
     REG_23h[4]   R/-  uint32_t    Reserved
-    REG_24h[4]   R/-  uint32_t    Max. EEPROM sector erase time
-    REG_25h[4]   R/-  uint32_t    Max. EEPROM sector program time
+    REG_24h[4]   R/-  uint32_t    Max. EEPROM page erase time
+    REG_25h[4]   R/-  uint32_t    Max. EEPROM page program time
 
     // EEPROM operation
     REG_28h[1]   -/W  uint8_t     EEPROM erase/verify
-                                  write 0x01 = erase selected EEPROM sector
-                                  write 0x02 = calculate CRC-8 of the selected EEPROM sector
-    REG_29h[4]   R/W  int32_t     EEPROM sector select
-    REG_2Ah[4]   R/-  uint32_t    EEPROM sector start address
-    REG_2Bh[4]   R/-  uint32_t    EEPROM sector size
+                                  write 0x01 = erase selected EEPROM page
+                                  write 0x02 = calculate CRC-8 of the selected EEPROM page
+    REG_29h[4]   R/W  int32_t     EEPROM page select
+    REG_2Ah[4]   R/-  uint32_t    EEPROM page start address
+    REG_2Bh[4]   R/-  uint32_t    EEPROM page size
     REG_2Ch[4]   R/W  uint32_t    EEPROM address offset pointer (auto increase)
     REG_2Dh[128] R/W  uint8_t[]   EEPROM data
 

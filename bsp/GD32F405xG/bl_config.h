@@ -28,11 +28,12 @@
 #define HAL_WDG_TIMEOUT                     1000
 
 #define MCU_PART_NUMBER                     "GD32F405xG"
-#define COMMIT_IMG_SIGNATUR                 0xAABBCCDD
+#define COMMIT_IMG_SIGNATURE                 0xAABBCCDD
 #define BLDR_PROG_BUILD_TIME                "2021-10-12 19:15:58"
 #define BLDR_PROG_MAJOR_VER                 0
 #define BLDR_PROG_MINOR_VER                 0
 #define BLDR_PROG_BUILD_VER                 1
+#define BLDR_PASSWORD                       "default_password"
 
 #define FLASH_ADDR_START                    0x08000000
 #define FLASH_ADDR_END                      0x080FFFFF
@@ -75,6 +76,11 @@ typedef unsigned long int                   uint32_t;
 typedef char                                int8_t;
 typedef int                                 int16_t;
 typedef long int                            int32_t;
+typedef uint32_t                            size_t;
+
+extern void *memcpy(void *_Restrict, const void *_Restrict, size_t);
+extern void *memset(void *, int, size_t);
+extern int strncmp(const char *, const char *, size_t);
 #endif
 /* Exported macro ------------------------------------------------------------*/
 
