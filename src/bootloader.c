@@ -17,47 +17,30 @@
 #include "hal.h"
 #include "crc.h"
 /* Private define ------------------------------------------------------------*/
-#define HST_PACKET_START_BYTE               0xAA
-#define DEV_PACKET_START_BYTE               0x55
-
-#define PKT_HDR_IDX_START                   0
-#define PKT_HDR_IDX_CRC8                    1
-#define PKT_HDR_IDX_TYPE                    2
-#define PKT_HDR_IDX_REGADDR                 3
-#define PKT_HDR_IDX_STATUS                  4
-#define PKT_HDR_IDX_LENGTH                  5
-#define PKT_HDR_SIZE                        6
 #define PKT_PLD_SIZE                        128
 
 #define TYPE_SET                            0x01
 #define TYPE_GET                            0x02
-
-#define STS_NA                              0x00
-#define STS_SUCCESS                         0x01
-#define STS_FAILURE_UNKNOWN_REG             (0x80|0x00)
-#define STS_FAILURE_ERR_LENGTH              (0x80|0x01)
-#define STS_FAILURE_NOT_SUPPORT             (0x80|0x02)
-#define STS_FAILURE_ERR_PASSWD              (0x80|0x03)
-#define STS_FAILURE_ERR_SIGNATURE           (0x80|0x04)
-#define STS_FAILURE_ERR_HAL                 (0x80|0x05)
-#define STS_FAILURE_ERR_PARAM               (0x80|0x06)
+#define TYPE_SUCCESS                        0x80
+#define TYPE_FAILURE_UNKNOWN_REG            (0x80|0x00)
+#define TYPE_FAILURE_ERR_LENGTH             (0x80|0x01)
+#define TYPE_FAILURE_NOT_SUPPORT            (0x80|0x02)
+#define TYPE_FAILURE_ERR_PASSWD             (0x80|0x03)
+#define TYPE_FAILURE_ERR_SIGNATURE          (0x80|0x04)
+#define TYPE_FAILURE_ERR_HAL                (0x80|0x05)
+#define TYPE_FAILURE_ERR_PARAM              (0x80|0x06)
 
 /* Private typedef -----------------------------------------------------------*/
 typedef struct packet_header_s {
-    uint8_t start;
-    uint8_t crc8;
+    uint8_t dev_addr;
     uint8_t type;
     uint8_t reg_addr;
-    uint8_t status;
     uint8_t length;
 } packet_header_t;
 
-typedef union packet_s {
-    uint8_t all[PKT_HDR_SIZE+PKT_PLD_SIZE];
-    struct {
-        packet_header_t header;
-        uint8_t payload[PKT_PLD_SIZE];
-    } part;
+typedef struct packet_s {
+    packet_header_t header;
+    uint8_t payload[PKT_PLD_SIZE];
 } packet_t;
 
 typedef struct reg_handler_s {
@@ -130,7 +113,7 @@ static void get_reg_2Ch(uint8_t reg_addr, uint8_t length);
 static void get_reg_2Dh(uint8_t reg_addr, uint8_t length);
 /* Private variables ---------------------------------------------------------*/
 static uint8_t passwd_ok = 0;
-static packet_t packet;
+static uint8_t packet[256];
 static nvm_ctrl_t fmc = {.page = -1};
 static nvm_ctrl_t emc = {.page = -1};
 
@@ -185,87 +168,59 @@ static const reg_handler_t hdl[] = {
     {NULL,        NULL       }, //2Fh
 };
 /* Private functions ---------------------------------------------------------*/
-static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_t length, void *payload)
+static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t length, void *payload)
 {
-    uint8_t crc = 0x00;
+    uint8_t crc;
     packet_header_t pkt_header;
     if(length > PKT_PLD_SIZE) return -1;
-    if(type != TYPE_SET && type!= TYPE_GET) return -1;
 
-    crc = crc8_maxim_update(crc, &type, 1);
-    crc = crc8_maxim_update(crc, &reg_addr, 1);
-    crc = crc8_maxim_update(crc, &status, 1);
-    crc = crc8_maxim_update(crc, &length, 1);
-    if(length > 0)
-        crc = crc8_maxim_update(crc, payload, length);
-    pkt_header.start = DEV_PACKET_START_BYTE;
-    pkt_header.crc8 = crc;
+    pkt_header.dev_addr = DEVICE_ADDR;
     pkt_header.type = type;
     pkt_header.reg_addr = reg_addr;
-    pkt_header.status = status;
     pkt_header.length = length;
-    hal_uart_send((uint8_t *)&pkt_header, PKT_HDR_SIZE);
-    hal_uart_send((uint8_t *)payload, length);
+
+    crc = crc8_maxim((uint8_t *)&pkt_header, sizeof(pkt_header));
+    if(length > 0)
+        crc = crc8_maxim_update(crc, payload, length);
+
+    hal_uart_send((uint8_t *)&pkt_header, sizeof(pkt_header));
+    if(length > 0)
+        hal_uart_send((uint8_t *)payload, length);
+    hal_uart_send((uint8_t *)crc, 1);
 
     return 0;
 }
 
-static int8_t on_recv_packet(packet_t *pkt, uint32_t len)
+static int8_t on_recv_packet(packet_t *pkt)
 {
-    uint8_t crc;
+    if(pkt->header.dev_addr != DEVICE_ADDR) return -1;
 
-    if(pkt->part.header.start != HST_PACKET_START_BYTE) return -1;
-
-    if(pkt->part.header.type == TYPE_SET)
+    if(pkt->header.type == TYPE_SET)
     {
-        if(len != sizeof(packet_header_t) + pkt->part.header.length)
+        if(pkt->header.reg_addr < sizeof(hdl)/sizeof(hdl[0]))
         {
-            return -1;
-        }
-        crc = crc8_maxim(&(pkt->all[PKT_HDR_IDX_TYPE]), PKT_HDR_SIZE-2+pkt->part.header.length);
-        if(crc == pkt->part.header.crc8)
-        {
-            if(pkt->part.header.reg_addr < sizeof(hdl)/sizeof(hdl[0]))
-            {
-                if(hdl[pkt->part.header.reg_addr].p_fxn_set_reg != NULL)
-                    hdl[pkt->part.header.reg_addr].p_fxn_set_reg(pkt->part.header.reg_addr, pkt->part.header.length > 0 ? pkt->part.payload : NULL, pkt->part.header.length);
-                else
-                    set_reg_XXh(pkt->part.header.reg_addr, pkt->part.payload, pkt->part.header.length);
-            }
+            if(hdl[pkt->header.reg_addr].p_fxn_set_reg != NULL)
+                hdl[pkt->header.reg_addr].p_fxn_set_reg(pkt->header.reg_addr, pkt->header.length > 0 ? pkt->payload : NULL, pkt->header.length);
             else
-            {
-                set_reg_XXh(pkt->part.header.reg_addr, pkt->part.payload, pkt->part.header.length);
-            }
+                set_reg_XXh(pkt->header.reg_addr, pkt->payload, pkt->header.length);
         }
         else
         {
-            return -1;
+            set_reg_XXh(pkt->header.reg_addr, pkt->payload, pkt->header.length);
         }
     }
-    else if(pkt->part.header.type == TYPE_GET)
+    else if(pkt->header.type == TYPE_GET)
     {
-        if(len != sizeof(packet_header_t))
+        if(pkt->header.reg_addr < sizeof(hdl)/sizeof(hdl[0]))
         {
-            return -1;
-        }
-        crc = crc8_maxim(&(pkt->all[PKT_HDR_IDX_TYPE]), PKT_HDR_SIZE-2);
-        if(crc == pkt->part.header.crc8)
-        {
-            if(pkt->part.header.reg_addr < sizeof(hdl)/sizeof(hdl[0]))
-            {
-                if(hdl[pkt->part.header.reg_addr].p_fxn_get_reg != NULL)
-                    hdl[pkt->part.header.reg_addr].p_fxn_get_reg(pkt->part.header.reg_addr, pkt->part.header.length);
-                else
-                    get_reg_XXh(pkt->part.header.reg_addr, pkt->part.header.length);
-            }
+            if(hdl[pkt->header.reg_addr].p_fxn_get_reg != NULL)
+                hdl[pkt->header.reg_addr].p_fxn_get_reg(pkt->header.reg_addr, pkt->header.length);
             else
-            {
-                get_reg_XXh(pkt->part.header.reg_addr, pkt->part.header.length);
-            }
+                get_reg_XXh(pkt->header.reg_addr, pkt->header.length);
         }
         else
         {
-            return -1;
+            get_reg_XXh(pkt->header.reg_addr, pkt->header.length);
         }
     }
     else
@@ -278,7 +233,7 @@ static int8_t on_recv_packet(packet_t *pkt, uint32_t len)
 
 static void set_reg_XXh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
-    send_packet(TYPE_SET, reg_addr, STS_FAILURE_UNKNOWN_REG, 0, NULL);
+    send_packet(TYPE_FAILURE_UNKNOWN_REG, reg_addr, 0, NULL);
 }
 static void set_reg_0Eh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
@@ -287,33 +242,33 @@ static void set_reg_0Eh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
         if(strncmp(BLDR_PASSWORD, (char *)payload, length) == 0)
         {
             passwd_ok = 1;
-            send_packet(TYPE_SET, reg_addr, STS_SUCCESS, 0, NULL);
+            send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
             return;
         }
     }
     passwd_ok = 0;
-    send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+    send_packet(TYPE_FAILURE_ERR_PARAM, reg_addr, 0, NULL);
 }
 static void set_reg_0Fh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     uint32_t s;
     if(length != 4)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
         return;
     }
     s = BUILD_UINT32(payload[3], payload[2],payload[1], payload[0]);
     if(s != COMMIT_IMG_SIGNATURE)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_SIGNATURE, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_SIGNATURE, reg_addr, 0, NULL);
         return;
     }
     if(hal_eeprom_write(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &s, sizeof(s)) != HAL_OK)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
         return;
     }
-    send_packet(TYPE_SET, reg_addr, STS_SUCCESS, 0, NULL);
+    send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
     hal_reset();
 }
 static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
@@ -326,12 +281,12 @@ static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     uint8_t crc = 0x00;
     if(!passwd_ok)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PASSWD, reg_addr, 0, NULL);
         return;
     }
     if(length != 1)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PARAM, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PARAM, reg_addr, 0, NULL);
         return;
     }
 
@@ -340,16 +295,16 @@ static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
         case 0x01:
             if(hal_flash_page_erase(fmc.page) != HAL_OK)
             {
-                send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+                send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
                 return;
             }
-            send_packet(TYPE_SET, reg_addr, STS_SUCCESS, 0, NULL);
+            send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
         return;
 
         case 0x02:
             if(hal_flash_page_info(fmc.page, &page_addr, &page_size) != HAL_OK)
             {
-                send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+                send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
                 return;
             }
             while(i < page_size)
@@ -357,18 +312,18 @@ static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
                 l = (i+sizeof(buf) < page_size) ? sizeof(buf) : (page_size-i);
                 if(hal_flash_read(page_addr+i, buf, l) != HAL_OK)
                 {
-                    send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+                    send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
                     return;
                 }
                 crc = crc8_maxim_update(crc, buf, l);
                 i += l;
             }
 
-            send_packet(TYPE_SET, reg_addr, STS_SUCCESS, sizeof(crc), &crc);
+            send_packet(TYPE_SUCCESS, reg_addr, sizeof(crc), &crc);
         return;
 
         default:
-            send_packet(TYPE_SET, reg_addr, STS_FAILURE_NOT_SUPPORT, 0, NULL);
+            send_packet(TYPE_FAILURE_NOT_SUPPORT, reg_addr, 0, NULL);
         return;
     }
 }
@@ -378,13 +333,13 @@ static void set_reg_19h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     uint32_t addr, size;
     if(!passwd_ok)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PASSWD, reg_addr, 0, NULL);
         return;
     }
 
     if(length != 4)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
         return;
     }
 
@@ -392,7 +347,7 @@ static void set_reg_19h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 
     if(hal_flash_page_info(page, &addr, &size) != HAL_OK)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
         return;
     }
 
@@ -400,48 +355,48 @@ static void set_reg_19h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     fmc.addr = addr;
     fmc.size = size;
     fmc.offs = 0;
-    send_packet(TYPE_SET, reg_addr, STS_SUCCESS, 0, NULL);
+    send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
 static void set_reg_1Ch(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     uint32_t offs;
     if(!passwd_ok)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PASSWD, reg_addr, 0, NULL);
         return;
     }
 
     if(length != 4)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
         return;
     }
 
     offs = BUILD_UINT32(payload[3], payload[2], payload[1], payload[0]);
     if(offs >= fmc.size)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PARAM, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PARAM, reg_addr, 0, NULL);
         return;
     }
     fmc.offs = offs;
-    send_packet(TYPE_SET, reg_addr, STS_SUCCESS, 0, NULL);
+    send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
 static void set_reg_1Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     if(!passwd_ok)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PASSWD, reg_addr, 0, NULL);
         return;
     }
 
     if(hal_flash_write(fmc.addr+fmc.offs, payload, length) != HAL_OK)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
         return;
     }
 
     fmc.offs += length;
-    send_packet(TYPE_SET, reg_addr, STS_SUCCESS, 0, NULL);
+    send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
 static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
@@ -453,12 +408,12 @@ static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     uint8_t crc;
     if(!passwd_ok)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PASSWD, reg_addr, 0, NULL);
         return;
     }
     if(length != 1)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PARAM, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PARAM, reg_addr, 0, NULL);
         return;
     }
 
@@ -467,16 +422,16 @@ static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
         case 0x01:
             if(hal_eeprom_page_erase(emc.page) != HAL_OK)
             {
-                send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+                send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
                 return;
             }
-            send_packet(TYPE_SET, reg_addr, STS_SUCCESS, 0, NULL);
+            send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
         return;
 
         case 0x02:
             if(hal_eeprom_page_info(emc.page, &page_addr, &page_size) != HAL_OK)
             {
-                send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+                send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
                 return;
             }
             while(i < page_size)
@@ -484,18 +439,18 @@ static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
                 l = (i+sizeof(buf) < page_size) ? sizeof(buf) : (page_size-i);
                 if(hal_eeprom_read(page_addr+i, buf, l) != HAL_OK)
                 {
-                    send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+                    send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
                     return;
                 }
                 crc = crc8_maxim(buf, l);
                 i += l;
             }
 
-            send_packet(TYPE_SET, reg_addr, STS_SUCCESS, sizeof(crc), &crc);
+            send_packet(TYPE_SUCCESS, reg_addr, sizeof(crc), &crc);
         return;
 
         default:
-            send_packet(TYPE_SET, reg_addr, STS_FAILURE_NOT_SUPPORT, 0, NULL);
+            send_packet(TYPE_FAILURE_NOT_SUPPORT, reg_addr, 0, NULL);
         return;
     }
 }
@@ -505,13 +460,13 @@ static void set_reg_29h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     uint32_t addr, size;
     if(!passwd_ok)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PASSWD, reg_addr, 0, NULL);
         return;
     }
 
     if(length != 4)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
         return;
     }
 
@@ -519,7 +474,7 @@ static void set_reg_29h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 
     if(hal_eeprom_page_info(page, &addr, &size) != HAL_OK)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
         return;
     }
 
@@ -527,53 +482,53 @@ static void set_reg_29h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     emc.addr = addr;
     emc.size = size;
     emc.offs = 0;
-    send_packet(TYPE_SET, reg_addr, STS_SUCCESS, 0, NULL);
+    send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
 static void set_reg_2Ch(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     uint32_t offs;
     if(!passwd_ok)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PASSWD, reg_addr, 0, NULL);
         return;
     }
 
     if(length != 4)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
         return;
     }
 
     offs = BUILD_UINT32(payload[3], payload[2], payload[1], payload[0]);
     if(offs >= emc.size)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PARAM, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PARAM, reg_addr, 0, NULL);
         return;
     }
     emc.offs = offs;
-    send_packet(TYPE_SET, reg_addr, STS_SUCCESS, 0, NULL);
+    send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
 static void set_reg_2Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     if(!passwd_ok)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PASSWD, reg_addr, 0, NULL);
         return;
     }
 
     if(hal_eeprom_write(emc.addr+emc.offs, payload, length) != HAL_OK)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
         return;
     }
 
     emc.offs += length;
-    send_packet(TYPE_SET, reg_addr, STS_SUCCESS, 0, NULL);
+    send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
 
 static void get_reg_XXh(uint8_t reg_addr, uint8_t length)
 {
-    send_packet(TYPE_SET, reg_addr, STS_FAILURE_UNKNOWN_REG, 0, NULL);
+    send_packet(TYPE_FAILURE_UNKNOWN_REG, reg_addr, 0, NULL);
 }
 static void get_reg_00h(uint8_t reg_addr, uint8_t length)
 {
@@ -583,9 +538,9 @@ static void get_reg_00h(uint8_t reg_addr, uint8_t length)
     l = strlen(MCU_PART_NUMBER);
     memcpy(payload, MCU_PART_NUMBER, l);
     if(length >= l && length <= PKT_PLD_SIZE)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, l, payload);
+        send_packet(TYPE_SET, reg_addr, l, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_01h(uint8_t reg_addr, uint8_t length)
 {
@@ -594,9 +549,9 @@ static void get_reg_01h(uint8_t reg_addr, uint8_t length)
     memset(payload, 0, sizeof(payload));
     l = hal_mcu_get_uuid(payload, sizeof(payload));
     if(length >= l && length <= PKT_PLD_SIZE)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, l, payload);
+        send_packet(TYPE_SET, reg_addr, l, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_02h(uint8_t reg_addr, uint8_t length)
 {
@@ -607,9 +562,9 @@ static void get_reg_02h(uint8_t reg_addr, uint8_t length)
         LO_UINT16(BLDR_PROG_BUILD_VER)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_03h(uint8_t reg_addr, uint8_t length)
 {
@@ -620,9 +575,9 @@ static void get_reg_03h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(FLASH_ADDR_BLDR_START, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_04h(uint8_t reg_addr, uint8_t length)
 {
@@ -633,9 +588,9 @@ static void get_reg_04h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(FLASH_BLDR_SIZE, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_10h(uint8_t reg_addr, uint8_t length)
 {
@@ -646,9 +601,9 @@ static void get_reg_10h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(FLASH_ADDR_START, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_11h(uint8_t reg_addr, uint8_t length)
 {
@@ -659,9 +614,9 @@ static void get_reg_11h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(FLASH_TOTAL_SIZE, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_12h(uint8_t reg_addr, uint8_t length)
 {
@@ -672,9 +627,9 @@ static void get_reg_12h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(FLASH_PAGE_NUM, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_13h(uint8_t reg_addr, uint8_t length)
 {
@@ -687,9 +642,9 @@ static void get_reg_13h(uint8_t reg_addr, uint8_t length)
                       (FLASH_READ_WORD <<1)|\
                       (FLASH_READ_BYTE <<0);
     if(length == 1)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, &payload);
+        send_packet(TYPE_SET, reg_addr, length, &payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_14h(uint8_t reg_addr, uint8_t length)
 {
@@ -700,9 +655,9 @@ static void get_reg_14h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(FLASH_PAGE_ERASE_TIME, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_15h(uint8_t reg_addr, uint8_t length)
 {
@@ -713,9 +668,9 @@ static void get_reg_15h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(FLASH_PAGE_PROG_TIME, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_19h(uint8_t reg_addr, uint8_t length)
 {
@@ -725,9 +680,9 @@ static void get_reg_19h(uint8_t reg_addr, uint8_t length)
     payload[2] = BREAK_UINT32(fmc.page, 1);
     payload[3] = BREAK_UINT32(fmc.page, 0);
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_1Ah(uint8_t reg_addr, uint8_t length)
 {
@@ -737,9 +692,9 @@ static void get_reg_1Ah(uint8_t reg_addr, uint8_t length)
     payload[2] = BREAK_UINT32(fmc.addr, 1);
     payload[3] = BREAK_UINT32(fmc.addr, 0);
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_1Bh(uint8_t reg_addr, uint8_t length)
 {
@@ -749,9 +704,9 @@ static void get_reg_1Bh(uint8_t reg_addr, uint8_t length)
     payload[2] = BREAK_UINT32(fmc.size, 1);
     payload[3] = BREAK_UINT32(fmc.size, 0);
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_1Ch(uint8_t reg_addr, uint8_t length)
 {
@@ -761,32 +716,32 @@ static void get_reg_1Ch(uint8_t reg_addr, uint8_t length)
     payload[2] = BREAK_UINT32(fmc.offs, 1);
     payload[3] = BREAK_UINT32(fmc.offs, 0);
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_1Dh(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[PKT_PLD_SIZE];
     if(!passwd_ok)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PASSWD, reg_addr, 0, NULL);
         return;
     }
 
     if(length == 0 || length > PKT_PLD_SIZE)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
         return;
     }
 
     if(hal_flash_read(fmc.addr+fmc.offs, payload, length) != HAL_OK)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
         return;
     }
 
-    send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    send_packet(TYPE_SET, reg_addr, length, payload);
 }
 static void get_reg_20h(uint8_t reg_addr, uint8_t length)
 {
@@ -798,11 +753,11 @@ static void get_reg_20h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(FLASH_ADDR_VIRTUAL_EEPROM_START, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 #else
-    send_packet(TYPE_SET, reg_addr, STS_FAILURE_NOT_SUPPORT, 0, NULL);
+    send_packet(TYPE_FAILURE_NOT_SUPPORT, reg_addr, 0, NULL);
 #endif
 }
 static void get_reg_21h(uint8_t reg_addr, uint8_t length)
@@ -814,9 +769,9 @@ static void get_reg_21h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(EEPROM_TOTAL_SIZE, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_22h(uint8_t reg_addr, uint8_t length)
 {
@@ -827,9 +782,9 @@ static void get_reg_22h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(EEPROM_PAGE_NUM, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_24h(uint8_t reg_addr, uint8_t length)
 {
@@ -840,9 +795,9 @@ static void get_reg_24h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(EEPROM_PAGE_ERASE_TIME, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_25h(uint8_t reg_addr, uint8_t length)
 {
@@ -853,9 +808,9 @@ static void get_reg_25h(uint8_t reg_addr, uint8_t length)
         BREAK_UINT32(EEPROM_PAGE_PROG_TIME, 0)
     };
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_29h(uint8_t reg_addr, uint8_t length)
 {
@@ -865,9 +820,9 @@ static void get_reg_29h(uint8_t reg_addr, uint8_t length)
     payload[2] = BREAK_UINT32(emc.page, 1);
     payload[3] = BREAK_UINT32(emc.page, 0);
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_2Ah(uint8_t reg_addr, uint8_t length)
 {
@@ -877,9 +832,9 @@ static void get_reg_2Ah(uint8_t reg_addr, uint8_t length)
     payload[2] = BREAK_UINT32(emc.addr, 1);
     payload[3] = BREAK_UINT32(emc.addr, 0);
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_2Bh(uint8_t reg_addr, uint8_t length)
 {
@@ -889,9 +844,9 @@ static void get_reg_2Bh(uint8_t reg_addr, uint8_t length)
     payload[2] = BREAK_UINT32(emc.size, 1);
     payload[3] = BREAK_UINT32(emc.size, 0);
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_2Ch(uint8_t reg_addr, uint8_t length)
 {
@@ -901,32 +856,32 @@ static void get_reg_2Ch(uint8_t reg_addr, uint8_t length)
     payload[2] = BREAK_UINT32(emc.offs, 1);
     payload[3] = BREAK_UINT32(emc.offs, 0);
     if(length == 4)
-        send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+        send_packet(TYPE_SET, reg_addr, length, payload);
     else
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
 static void get_reg_2Dh(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[PKT_PLD_SIZE];
     if(!passwd_ok)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_PASSWD, reg_addr, 0, NULL);
         return;
     }
 
     if(length == 0 || length > PKT_PLD_SIZE)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
         return;
     }
 
     if(hal_eeprom_read(emc.addr+emc.offs, payload, length) != HAL_OK)
     {
-        send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
+        send_packet(TYPE_FAILURE_ERR_HAL, reg_addr, 0, NULL);
         return;
     }
 
-    send_packet(TYPE_SET, reg_addr, STS_SUCCESS, length, payload);
+    send_packet(TYPE_SET, reg_addr, length, payload);
 }
 /* Exported variables --------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/
@@ -974,9 +929,12 @@ void bootloader_service(void)
 
     while(1)
     {
-        if(hal_uart_recv((uint8_t *)&packet, sizeof(packet), &rxlen) == HAL_OK)
+        if(hal_uart_recv(packet, sizeof(packet), &rxlen) == HAL_OK)
         {
-            on_recv_packet(&packet, rxlen);
+            if(packet[rxlen-1] == crc8_maxim(packet, rxlen-1))
+            {
+                on_recv_packet((packet_t *)packet);
+            }
         }
     }
 }

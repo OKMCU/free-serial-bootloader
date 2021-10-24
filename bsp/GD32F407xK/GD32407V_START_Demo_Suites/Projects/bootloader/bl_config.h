@@ -28,6 +28,7 @@
 #define HAL_WDG_ENABLE                      0
 #define HAL_WDG_TIMEOUT                     2000
 #define CRC8_MAXIM_ALGO_SEL                 1
+#define DEVICE_ADDR                         0xAA
 
 #define MCU_PART_NUMBER                     "GD32F407xK"
 #define COMMIT_IMG_SIGNATURE                 0xAABBCCDD

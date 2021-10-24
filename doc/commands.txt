@@ -2,27 +2,21 @@
    handshaking machanism is removed
 
 2. Packet format (in hex) in communication between HOST and DEVICE
-     {start} {crc8} {type} {reg_addr} {status} {length} {payload}
+     {dev_addr} {type} {reg_addr} {length} {payload} {crc8}
 
-     {start}         1 byte
-                     0xAA if packet is from HOST to DEVICE
-                     0x55 if packet is from DEVICE to HOST
-     {crc8}          1 byte
-                     crc8 of the packet except {start} and {crc8}
-                     crc8 = 0x00 means bypass CRC checking
+     {dev_addr}      1 byte
      {type}          1 byte
-                     0x01 = register SET
-                     0x02 = register GET
+                     0x01 = SET
+                     0x02 = GET
+                     0x80 = SUCCESS
+                     0x81~0xFF = ErrorCode
      {reg_addr}      1 byte
-     {status}        1 byte
-                     0x00: Invalid and can be ignored
-                     0x01: SUCCESS
-                     0x80: Generic Error
-                     0x81: CRC error
-     {length}        1 bytes
+     {length}        1 byte
                      number of bytes in payload
-     {data}          0~128 bytes
+     {payload}       0~128 bytes
                      payload
+     {crc8}          1 byte
+                     crc8 of the whole packet
 
 3. Register memory map
     // MCU information & bootloader control
