@@ -210,7 +210,7 @@ static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_
     return 0;
 }
 
-static int8_t on_recv_packet(packet_t *pkt)
+static int8_t on_recv_packet(packet_t *pkt, uint32_t len)
 {
     uint8_t crc;
 
@@ -218,6 +218,10 @@ static int8_t on_recv_packet(packet_t *pkt)
 
     if(pkt->part.header.type == TYPE_SET)
     {
+        if(len != sizeof(packet_header_t) + pkt->part.header.length)
+        {
+            return -1;
+        }
         crc = crc8_maxim(&(pkt->all[PKT_HDR_IDX_TYPE]), PKT_HDR_SIZE-2+pkt->part.header.length);
         if(crc == pkt->part.header.crc8)
         {
@@ -240,6 +244,10 @@ static int8_t on_recv_packet(packet_t *pkt)
     }
     else if(pkt->part.header.type == TYPE_GET)
     {
+        if(len != sizeof(packet_header_t))
+        {
+            return -1;
+        }
         crc = crc8_maxim(&(pkt->all[PKT_HDR_IDX_TYPE]), PKT_HDR_SIZE-2);
         if(crc == pkt->part.header.crc8)
         {
@@ -968,7 +976,7 @@ void bootloader_service(void)
     {
         if(hal_uart_recv((uint8_t *)&packet, sizeof(packet), &rxlen) == HAL_OK)
         {
-            on_recv_packet(&packet);
+            on_recv_packet(&packet, rxlen);
         }
     }
 }
