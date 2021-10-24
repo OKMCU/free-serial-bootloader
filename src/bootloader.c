@@ -17,10 +17,6 @@
 #include "hal.h"
 #include "crc.h"
 /* Private define ------------------------------------------------------------*/
-#define UART_BUF_SIZE                       1024
-#define HST_HANDSHAKING_BYTE                0x55
-#define DEV_HANDSHAKING_BYTE                0xAA
-#define HANDSHAKING_SUCCESS_THRE            4
 #define HST_PACKET_START_BYTE               0xAA
 #define DEV_PACKET_START_BYTE               0x55
 
@@ -47,23 +43,19 @@
 #define STS_FAILURE_ERR_PARAM               (0x80|0x06)
 
 /* Private typedef -----------------------------------------------------------*/
-typedef struct uart_rx_buffer_s {
-    uint8_t data[UART_BUF_SIZE];
-    uint16_t head;
-    uint16_t tail;
-} uart_rx_buffer_t;
+typedef struct packet_header_s {
+    uint8_t start;
+    uint8_t crc8;
+    uint8_t type;
+    uint8_t reg_addr;
+    uint8_t status;
+    uint8_t length;
+} packet_header_t;
 
 typedef union packet_s {
     uint8_t all[PKT_HDR_SIZE+PKT_PLD_SIZE];
     struct {
-        struct {
-            uint8_t start;
-            uint8_t crc8;
-            uint8_t type;
-            uint8_t reg_addr;
-            uint8_t status;
-            uint8_t length;
-        } header;
+        packet_header_t header;
         uint8_t payload[PKT_PLD_SIZE];
     } part;
 } packet_t;
@@ -97,9 +89,6 @@ typedef struct nvm_ctrl_s {
 
 #define BIT(n)      (1<<n)
 /* Private function prototypes -----------------------------------------------*/
-static void uart_rxd_callback(uint8_t rx_byte);
-static void uart_err_callback(void);
-
 static void set_reg_XXh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
 static void set_reg_0Eh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
 static void set_reg_0Fh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
@@ -140,19 +129,10 @@ static void get_reg_2Bh(uint8_t reg_addr, uint8_t length);
 static void get_reg_2Ch(uint8_t reg_addr, uint8_t length);
 static void get_reg_2Dh(uint8_t reg_addr, uint8_t length);
 /* Private variables ---------------------------------------------------------*/
-static volatile uart_rx_buffer_t rb;
-static volatile uint8_t uart_err = 0;
-static uint8_t packet_rxcnt = 0;
-static uint8_t handshaking_cnt = 0;
 static uint8_t passwd_ok = 0;
 static packet_t packet;
 static nvm_ctrl_t fmc = {.page = -1};
 static nvm_ctrl_t emc = {.page = -1};
-
-static const hal_uart_callback_t uart_cb = {
-    .rxd_callback = uart_rxd_callback, 
-    .err_callback = uart_err_callback
-};
 
 static const reg_handler_t hdl[] = {
     {NULL,        get_reg_00h}, //00h
@@ -205,29 +185,10 @@ static const reg_handler_t hdl[] = {
     {NULL,        NULL       }, //2Fh
 };
 /* Private functions ---------------------------------------------------------*/
-static void uart_rxd_callback(uint8_t rx_byte)
-{
-    uint16_t curr_head, curr_tail, next_tail;
-
-    curr_head = rb.head;
-    curr_tail = rb.tail;
-    next_tail = curr_tail+1;
-    if(next_tail >= UART_BUF_SIZE) next_tail = 0;
-    if(next_tail != curr_head)
-    {
-        rb.data[curr_tail] = rx_byte;
-        rb.tail = next_tail;
-    }
-}
-
-static void uart_err_callback(void)
-{
-    uart_err = 1;
-}
-
 static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_t length, void *payload)
 {
-    uint8_t i, crc = 0x00;
+    uint8_t crc = 0x00;
+    packet_header_t pkt_header;
     if(length > PKT_PLD_SIZE) return -1;
     if(type != TYPE_SET && type!= TYPE_GET) return -1;
 
@@ -237,23 +198,23 @@ static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_
     crc = crc8_maxim_update(crc, &length, 1);
     if(length > 0)
         crc = crc8_maxim_update(crc, payload, length);
-    hal_uart_send(DEV_PACKET_START_BYTE);
-    hal_uart_send(crc);
-    hal_uart_send(type);
-    hal_uart_send(reg_addr);
-    hal_uart_send(status);
-    hal_uart_send(length);
-    for(i = 0; i < length; i++)
-    {
-        hal_uart_send(((uint8_t *)payload)[i]);
-    }
+    pkt_header.start = DEV_PACKET_START_BYTE;
+    pkt_header.crc8 = crc;
+    pkt_header.type = type;
+    pkt_header.reg_addr = reg_addr;
+    pkt_header.status = status;
+    pkt_header.length = length;
+    hal_uart_send((uint8_t *)&pkt_header, PKT_HDR_SIZE);
+    hal_uart_send((uint8_t *)payload, length);
 
     return 0;
 }
 
-static void on_recv_packet(packet_t *pkt)
+static int8_t on_recv_packet(packet_t *pkt)
 {
     uint8_t crc;
+
+    if(pkt->part.header.start != HST_PACKET_START_BYTE) return -1;
 
     if(pkt->part.header.type == TYPE_SET)
     {
@@ -271,6 +232,10 @@ static void on_recv_packet(packet_t *pkt)
             {
                 set_reg_XXh(pkt->part.header.reg_addr, pkt->part.payload, pkt->part.header.length);
             }
+        }
+        else
+        {
+            return -1;
         }
     }
     else if(pkt->part.header.type == TYPE_GET)
@@ -290,7 +255,17 @@ static void on_recv_packet(packet_t *pkt)
                 get_reg_XXh(pkt->part.header.reg_addr, pkt->part.header.length);
             }
         }
+        else
+        {
+            return -1;
+        }
     }
+    else
+    {
+        return -1;
+    }
+
+    return 0;
 }
 
 static void set_reg_XXh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
@@ -972,8 +947,7 @@ void bootloader_reset_handler(void)
 
 void bootloader_service(void)
 {
-    uint8_t rx_byte;
-    uint16_t head, tail;
+    uint32_t rxlen;
     uint32_t signature;
 
 #if defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
@@ -988,109 +962,14 @@ void bootloader_service(void)
             hal_eeprom_write(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &signature, sizeof(signature));
         }
     }
-    hal_uart_init(&uart_cb, HAL_UART_BAUDRATE);
+    hal_uart_init(HAL_UART_BAUDRATE);
 
     while(1)
     {
-        /* refresh watch dog counter */
-#if defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
-        hal_wdg_refresh();
-#endif // defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
-
-        hal_enter_critical();
-        if(uart_err)
+        if(hal_uart_recv((uint8_t *)&packet, sizeof(packet), &rxlen) == HAL_OK)
         {
-            uart_err = 0;
-            rb.head = 0;
-            rb.tail = 0;
-            hal_exit_critical();
-            packet_rxcnt = 0;
-            handshaking_cnt = 0;
+            on_recv_packet(&packet);
         }
-        else
-        {
-            hal_exit_critical();
-        }
-
-        /* check uart rx buffer */
-        hal_enter_critical();
-        head = rb.head;
-        tail = rb.tail;
-        hal_exit_critical();
-
-        /* process rx data */
-        while(head != tail)
-        {
-            hal_enter_critical();
-            rx_byte = rb.data[head];
-            hal_exit_critical();
-            head++;
-            if(head >= UART_BUF_SIZE) head = 0;
-            if(packet_rxcnt == PKT_HDR_IDX_START)
-            {
-                if(rx_byte == HST_PACKET_START_BYTE)
-                {
-                    packet.all[packet_rxcnt++] = rx_byte;
-                    handshaking_cnt = 0;
-                }
-                else
-                {
-                    if(rx_byte == HST_HANDSHAKING_BYTE)
-                    {
-                        if(handshaking_cnt < UINT8_MAX) handshaking_cnt++;
-                        if(handshaking_cnt >= HANDSHAKING_SUCCESS_THRE)
-                        {
-                            /* handshaking success */
-                            hal_uart_send(DEV_HANDSHAKING_BYTE);
-                        }
-                    }
-                    else
-                    {
-                        handshaking_cnt = 0;
-                    }
-                }
-            }
-            else if(packet_rxcnt >= PKT_HDR_IDX_LENGTH)
-            {
-                packet.all[packet_rxcnt] = rx_byte;
-                if(packet.part.header.type == TYPE_GET)
-                {
-                    // received full GET command and process it
-                    on_recv_packet(&packet);
-                    packet_rxcnt = 0;
-                }
-                else if(packet.part.header.type == TYPE_SET)
-                {
-                    if(packet.part.header.length <= PKT_PLD_SIZE)
-                    {
-                        packet_rxcnt++;
-                        if(packet_rxcnt == PKT_HDR_SIZE+packet.part.header.length)
-                        {
-                            // received full SET command and process it
-                            on_recv_packet(&packet);
-                            packet_rxcnt = 0;
-                        }
-                    }
-                    else
-                    {
-                        packet_rxcnt = 0;
-                    }
-                }
-                else
-                {
-                    packet_rxcnt = 0;
-                }
-            }
-            else
-            {
-                packet.all[packet_rxcnt++] = rx_byte;
-            }
-        }
-
-        /* update head position of the ring buffer */
-        hal_enter_critical();
-        rb.head = head;
-        hal_exit_critical();
     }
 }
 /******************************** END OF FILE *********************************/

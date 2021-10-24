@@ -22,6 +22,14 @@ typedef struct nvm_page_attr_s {
     uint32_t addr;
     uint32_t size;
 } nvm_page_attr_t;
+
+typedef struct uart_rx_ctrl_s {
+    uint8_t *p_rxbuf;
+    uint32_t size;
+    uint32_t rxlen;
+    uint8_t complete;
+    uint8_t error;
+} uart_rx_ctrl_t;
 /* Private macro -------------------------------------------------------------*/
 #define BUILD_UINT32(Byte0, Byte1, Byte2, Byte3) \
           ((uint32_t)((uint32_t)((Byte0) & 0x00FF) \
@@ -100,7 +108,7 @@ static const uint32_t CTL_SECTOR_NUMBER[FLASH_PAGE_NUM] = {
 
 static uint8_t eepbuf[EEPROM_TOTAL_SIZE];
 static uint8_t eepbuf_init = 0;
-static hal_uart_callback_t uart_cb;
+static volatile uart_rx_ctrl_t uart_rx_ctrl;
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
 /* Exported variables --------------------------------------------------------*/
@@ -416,20 +424,18 @@ int8_t hal_eeprom_write(uint32_t addr, const void *p_buf, uint32_t size)
     return HAL_OK;
 }
 
-int8_t hal_uart_init(const hal_uart_callback_t *cb, uint32_t baudrate)
+int8_t hal_uart_init(uint32_t baudrate)
 {
-    uart_cb.rxd_callback = cb->rxd_callback;
-    uart_cb.err_callback = cb->err_callback;
-
     /* USART configure */
     usart_deinit(USART0);
     usart_word_length_set(USART0, USART_WL_8BIT);
     usart_stop_bit_set(USART0, USART_STB_1BIT);
     usart_parity_config(USART0, USART_PM_NONE);
     usart_baudrate_set(USART0, baudrate);
-    usart_receive_config(USART0, USART_RECEIVE_ENABLE);
+    //usart_receive_config(USART0, USART_RECEIVE_ENABLE);
     usart_transmit_config(USART0, USART_TRANSMIT_ENABLE);
     usart_interrupt_enable(USART0, USART_INT_RBNE);
+    usart_interrupt_enable(USART0, USART_INT_IDLE);
     usart_enable(USART0);
     return HAL_OK;
 }
@@ -440,24 +446,71 @@ int8_t hal_uart_config(uint32_t baudrate)
     return HAL_OK;
 }
 
-int8_t hal_uart_send(uint8_t tx_byte)
+int8_t hal_uart_send(const uint8_t *p_data, uint32_t txlen)
 {
-    usart_data_transmit(USART0, tx_byte);
-    while(RESET == usart_flag_get(USART0, USART_FLAG_TBE));
+    uint32_t i;
+    for(i = 0; i < txlen; i++)
+    {
+        usart_data_transmit(USART0, p_data[i]);
+        while(RESET == usart_flag_get(USART0, USART_FLAG_TBE));
+    }
     return HAL_OK;
+}
+
+int8_t hal_uart_recv(uint8_t *p_data, uint32_t size, uint32_t *rxlen)
+{
+    if(p_data == NULL || size == 0) return HAL_ERR;
+    uart_rx_ctrl.p_rxbuf = p_data;
+    uart_rx_ctrl.size = size;
+    uart_rx_ctrl.rxlen = 0;
+    uart_rx_ctrl.complete = 0;
+    uart_rx_ctrl.error = 0;
+    usart_receive_config(USART0, USART_RECEIVE_ENABLE);
+    while(uart_rx_ctrl.complete == 0 && uart_rx_ctrl.error == 0)
+    {
+#if defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
+        /* refresh watch dog counter */
+        hal_wdg_refresh();
+#endif // defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
+    }
+
+    if(uart_rx_ctrl.complete)
+    {
+        *rxlen = uart_rx_ctrl.rxlen;
+        return HAL_OK;
+    }
+
+    return HAL_ERR;
 }
 
 void hal_uart_isr(void)
 {
     uint8_t byte;
+    uint32_t rxlen;
     if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_RBNE))
     {
         /* receive data */
         byte = usart_data_receive(USART0);
-        if(uart_cb.rxd_callback != NULL)
+        rxlen = uart_rx_ctrl.rxlen;
+        if(rxlen < uart_rx_ctrl.size)
         {
-            uart_cb.rxd_callback(byte);
+            uart_rx_ctrl.p_rxbuf[rxlen++] = byte;
+            if(rxlen == uart_rx_ctrl.size)
+            {
+                usart_receive_config(USART0, USART_RECEIVE_DISABLE);
+                uart_rx_ctrl.complete = 1;
+            }
+            uart_rx_ctrl.rxlen = rxlen;
         }
+    }
+
+    if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_IDLE))
+    {
+        /* clear interrupt flag */
+        //usart_interrupt_flag_clear(USART0, USART_INT_FLAG_IDLE);
+        byte = usart_data_receive(USART0);
+        usart_receive_config(USART0, USART_RECEIVE_DISABLE);
+        uart_rx_ctrl.complete = 1;
     }
 }
 /******************************** END OF FILE *********************************/

@@ -22,10 +22,6 @@
 #define HAL_OK                  0
 #define HAL_ERR                 -1
 /* Exported types ------------------------------------------------------------*/
-typedef struct hal_uart_callback_s {
-    void (*rxd_callback)(uint8_t rx_byte);
-    void (*err_callback)(void);
-}  hal_uart_callback_t;
 /* Exported macro ------------------------------------------------------------*/
 /* Exported variables --------------------------------------------------------*/
 /* Exported functions --------------------------------------------------------*/
@@ -51,9 +47,10 @@ int8_t hal_eeprom_page_erase(int32_t page);
 int8_t hal_eeprom_read(uint32_t addr, void *p_buf, uint32_t size);
 int8_t hal_eeprom_write(uint32_t addr, const void *p_buf, uint32_t size);
 
-int8_t hal_uart_init(const hal_uart_callback_t *cb, uint32_t baudrate);
+int8_t hal_uart_init(uint32_t baudrate);
 int8_t hal_uart_config(uint32_t baudrate);
-int8_t hal_uart_send(uint8_t tx_byte);
+int8_t hal_uart_send(const uint8_t *p_data, uint32_t txlen);
+int8_t hal_uart_recv(uint8_t *p_data, uint32_t size, uint32_t *rxlen);
 
 #endif /* __HAL_H */
 

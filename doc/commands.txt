@@ -1,7 +1,5 @@
 1. Hand-shaking (for serial port only)
-   HOST   sends  0x55 0x55 0x55 ... 0x55
-   DEVICE replys 0xAA 0xAA 0xAA ... 0xAA
-   HOST can confirm that DEVICE is ready when receives 0xAA and can continue the communication.
+   handshaking machanism is removed
 
 2. Packet format (in hex) in communication between HOST and DEVICE
      {start} {crc8} {type} {reg_addr} {status} {length} {payload}
