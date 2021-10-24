@@ -15,6 +15,7 @@
  
 /* Includes ------------------------------------------------------------------*/
 #include "hal.h"
+#include "crc.h"
 /* Private define ------------------------------------------------------------*/
 #define UART_BUF_SIZE                       1024
 #define HST_HANDSHAKING_BYTE                0x55
@@ -30,6 +31,7 @@
 #define PKT_HDR_IDX_STATUS                  4
 #define PKT_HDR_IDX_LENGTH                  5
 #define PKT_HDR_SIZE                        6
+#define PKT_PLD_SIZE                        128
 
 #define TYPE_SET                            0x01
 #define TYPE_GET                            0x02
@@ -52,7 +54,7 @@ typedef struct uart_rx_buffer_s {
 } uart_rx_buffer_t;
 
 typedef union packet_s {
-    uint8_t all[PKT_HDR_SIZE+128];
+    uint8_t all[PKT_HDR_SIZE+PKT_PLD_SIZE];
     struct {
         struct {
             uint8_t start;
@@ -62,7 +64,7 @@ typedef union packet_s {
             uint8_t status;
             uint8_t length;
         } header;
-        uint8_t payload[128];
+        uint8_t payload[PKT_PLD_SIZE];
     } part;
 } packet_t;
 
@@ -223,23 +225,18 @@ static void uart_err_callback(void)
     uart_err = 1;
 }
 
-static uint8_t calc_crc8(uint8_t crc, void *p_buf, uint32_t size)
-{
-    return 0x00;
-}
-
 static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t status, uint8_t length, void *payload)
 {
     uint8_t i, crc = 0x00;
-    if(length > 128) return -1;
+    if(length > PKT_PLD_SIZE) return -1;
     if(type != TYPE_SET && type!= TYPE_GET) return -1;
 
-    crc = calc_crc8(crc, &type, 1);
-    crc = calc_crc8(crc, &reg_addr, 1);
-    crc = calc_crc8(crc, &status, 1);
-    crc = calc_crc8(crc, &length, 1);
+    crc = crc8_maxim_update(crc, &type, 1);
+    crc = crc8_maxim_update(crc, &reg_addr, 1);
+    crc = crc8_maxim_update(crc, &status, 1);
+    crc = crc8_maxim_update(crc, &length, 1);
     if(length > 0)
-        crc = calc_crc8(crc, payload, length);
+        crc = crc8_maxim_update(crc, payload, length);
     hal_uart_send(DEV_PACKET_START_BYTE);
     hal_uart_send(crc);
     hal_uart_send(type);
@@ -258,10 +255,10 @@ static void on_recv_packet(packet_t *pkt)
 {
     uint8_t crc;
 
-    crc = calc_crc8(0x00, &(pkt->all[PKT_HDR_IDX_TYPE]), PKT_HDR_SIZE-2+pkt->part.header.length);
-    if(crc == pkt->part.header.crc8)
+    if(pkt->part.header.type == TYPE_SET)
     {
-        if(pkt->part.header.type == TYPE_SET)
+        crc = crc8_maxim(&(pkt->all[PKT_HDR_IDX_TYPE]), PKT_HDR_SIZE-2+pkt->part.header.length);
+        if(crc == pkt->part.header.crc8)
         {
             if(pkt->part.header.reg_addr < sizeof(hdl)/sizeof(hdl[0]))
             {
@@ -275,7 +272,11 @@ static void on_recv_packet(packet_t *pkt)
                 set_reg_XXh(pkt->part.header.reg_addr, pkt->part.payload, pkt->part.header.length);
             }
         }
-        else if(pkt->part.header.type == TYPE_GET)
+    }
+    else if(pkt->part.header.type == TYPE_GET)
+    {
+        crc = crc8_maxim(&(pkt->all[PKT_HDR_IDX_TYPE]), PKT_HDR_SIZE-2);
+        if(crc == pkt->part.header.crc8)
         {
             if(pkt->part.header.reg_addr < sizeof(hdl)/sizeof(hdl[0]))
             {
@@ -376,7 +377,7 @@ static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
                     send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
                     return;
                 }
-                crc = calc_crc8(crc, buf, l);
+                crc = crc8_maxim_update(crc, buf, l);
                 i += l;
             }
 
@@ -466,7 +467,7 @@ static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     uint32_t page_size;
     uint32_t i = 0;
     uint32_t l;
-    uint8_t crc = 0x00;
+    uint8_t crc;
     if(!passwd_ok)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
@@ -503,7 +504,7 @@ static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
                     send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_HAL, 0, NULL);
                     return;
                 }
-                crc = calc_crc8(crc, buf, l);
+                crc = crc8_maxim(buf, l);
                 i += l;
             }
 
@@ -593,23 +594,23 @@ static void get_reg_XXh(uint8_t reg_addr, uint8_t length)
 }
 static void get_reg_00h(uint8_t reg_addr, uint8_t length)
 {
-    char payload[128];
+    char payload[PKT_PLD_SIZE];
     uint8_t l;
     memset(payload, 0, sizeof(payload));
     l = strlen(MCU_PART_NUMBER);
     memcpy(payload, MCU_PART_NUMBER, l);
-    if(length >= l && length <= 128)
+    if(length >= l && length <= PKT_PLD_SIZE)
         send_packet(TYPE_SET, reg_addr, STS_SUCCESS, l, payload);
     else
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
 }
 static void get_reg_01h(uint8_t reg_addr, uint8_t length)
 {
-    char payload[128];
+    char payload[PKT_PLD_SIZE];
     uint8_t l;
     memset(payload, 0, sizeof(payload));
     l = hal_mcu_get_uuid(payload, sizeof(payload));
-    if(length >= l && length <= 128)
+    if(length >= l && length <= PKT_PLD_SIZE)
         send_packet(TYPE_SET, reg_addr, STS_SUCCESS, l, payload);
     else
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
@@ -783,14 +784,14 @@ static void get_reg_1Ch(uint8_t reg_addr, uint8_t length)
 }
 static void get_reg_1Dh(uint8_t reg_addr, uint8_t length)
 {
-    uint8_t payload[128];
+    uint8_t payload[PKT_PLD_SIZE];
     if(!passwd_ok)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
         return;
     }
 
-    if(length == 0 || length > 128)
+    if(length == 0 || length > PKT_PLD_SIZE)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
         return;
@@ -923,14 +924,14 @@ static void get_reg_2Ch(uint8_t reg_addr, uint8_t length)
 }
 static void get_reg_2Dh(uint8_t reg_addr, uint8_t length)
 {
-    uint8_t payload[128];
+    uint8_t payload[PKT_PLD_SIZE];
     if(!passwd_ok)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_PASSWD, 0, NULL);
         return;
     }
 
-    if(length == 0 || length > 128)
+    if(length == 0 || length > PKT_PLD_SIZE)
     {
         send_packet(TYPE_SET, reg_addr, STS_FAILURE_ERR_LENGTH, 0, NULL);
         return;
@@ -1060,7 +1061,7 @@ void bootloader_service(void)
                 }
                 else if(packet.part.header.type == TYPE_SET)
                 {
-                    if(packet.part.header.length <= 128)
+                    if(packet.part.header.length <= PKT_PLD_SIZE)
                     {
                         packet_rxcnt++;
                         if(packet_rxcnt == PKT_HDR_SIZE+packet.part.header.length)
