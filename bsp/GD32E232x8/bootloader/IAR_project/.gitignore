@@ -1,0 +1,5 @@
+*.dep
+*.ewd
+*.ewt
+settings/
+GD32E232/
