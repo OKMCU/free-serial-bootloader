@@ -360,7 +360,7 @@ int8_t hal_uart_recv(uint8_t *p_data, uint32_t size, uint32_t *rxlen)
     uart_rx_ctrl.complete = 0;
     uart_rx_ctrl.error = 0;
 
-    while(uart_rx_ctrl.complete == 0 && uart_rx_ctrl.error == 0)
+    while(uart_rx_ctrl.complete == 0)
     {
 #if defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
         /* refresh watch dog counter */
@@ -368,7 +368,7 @@ int8_t hal_uart_recv(uint8_t *p_data, uint32_t size, uint32_t *rxlen)
 #endif // defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
     }
 
-    if(uart_rx_ctrl.complete && uart_rx_ctrl.rxlen > 0)
+    if(uart_rx_ctrl.complete && uart_rx_ctrl.rxlen > 0 && uart_rx_ctrl.error == 0)
     {
         *rxlen = uart_rx_ctrl.rxlen;
         return HAL_OK;
@@ -387,16 +387,15 @@ void hal_uart_isr(void)
         /* receive data */
         byte = usart_data_receive(USART0);
         if(uart_rx_ctrl.complete) return;
-        if(uart_rx_ctrl.error) return;
         rxlen = uart_rx_ctrl.rxlen;
         if(rxlen < uart_rx_ctrl.size)
         {
             uart_rx_ctrl.p_rxbuf[rxlen++] = byte;
-            if(rxlen == uart_rx_ctrl.size)
-            {
-                uart_rx_ctrl.complete = 1;
-            }
             uart_rx_ctrl.rxlen = rxlen;
+        }
+        else
+        {
+            uart_rx_ctrl.error = 1;
         }
         return;
     }
