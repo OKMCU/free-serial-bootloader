@@ -925,7 +925,6 @@ void bootloader_service(void)
             hal_eeprom_write(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &signature, sizeof(signature));
         }
     }
-    hal_uart_init(HAL_UART_BAUDRATE);
 
     while(1)
     {

@@ -424,22 +424,6 @@ int8_t hal_eeprom_write(uint32_t addr, const void *p_buf, uint32_t size)
     return HAL_OK;
 }
 
-int8_t hal_uart_init(uint32_t baudrate)
-{
-    /* USART configure */
-    usart_deinit(USART0);
-    usart_word_length_set(USART0, USART_WL_8BIT);
-    usart_stop_bit_set(USART0, USART_STB_1BIT);
-    usart_parity_config(USART0, USART_PM_NONE);
-    usart_baudrate_set(USART0, baudrate);
-    //usart_receive_config(USART0, USART_RECEIVE_ENABLE);
-    usart_transmit_config(USART0, USART_TRANSMIT_ENABLE);
-    usart_interrupt_enable(USART0, USART_INT_RBNE);
-    usart_interrupt_enable(USART0, USART_INT_IDLE);
-    usart_enable(USART0);
-    return HAL_OK;
-}
-
 int8_t hal_uart_config(uint32_t baudrate)
 {
     usart_baudrate_set(USART0, HAL_UART_BAUDRATE);
