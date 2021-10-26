@@ -17,8 +17,9 @@
 #include "hal.h"
 #include "crc.h"
 /* Private define ------------------------------------------------------------*/
+/* Maximum number of bytes in payload of a packet */
 #define PKT_PLD_SIZE                        128
-
+/* Packet type enum */
 #define TYPE_SET                            0x01
 #define TYPE_GET                            0x02
 #define TYPE_SUCCESS                        0x80
@@ -29,47 +30,86 @@
 #define TYPE_FAILURE_ERR_SIGNATURE          (0x80|0x04)
 #define TYPE_FAILURE_ERR_HAL                (0x80|0x05)
 #define TYPE_FAILURE_ERR_PARAM              (0x80|0x06)
-
 /* Private typedef -----------------------------------------------------------*/
+/**
+ * First 4-byte header format of a packet.
+ */
 typedef struct packet_header_s {
+    /* device address, ranging from 0x01 ~ 0xFF, 0x00 is for broadcasting */
     uint8_t dev_addr;
+    /* packet type */
     uint8_t type;
+    /* register address */
     uint8_t reg_addr;
+    /** 
+     * number of bytes in payload of a SET type packet, or
+     * number of bytes to read of a GET type packet
+     */
     uint8_t length;
 } packet_header_t;
 
+/**
+ * Full packet format.
+ */
 typedef struct packet_s {
+    /* packet header */
     packet_header_t header;
+    /* packet payload */
     uint8_t payload[PKT_PLD_SIZE];
 } packet_t;
 
+/**
+ * register handlers
+ */
 typedef struct reg_handler_s {
     void (*p_fxn_set_reg)(uint8_t reg_addr, uint8_t *payload, uint8_t length);
     void (*p_fxn_get_reg)(uint8_t reg_addr, uint8_t length);
 } reg_handler_t;
 
+/**
+ * FLASH/EEPROM memory read/write control body
+ */
 typedef struct nvm_ctrl_s {
+    /* selected NVM page, <0 for not selected */
     int32_t page;
+    /* starting address of the selected NVM page */
     uint32_t addr;
+    /* number of bytes in the selected NVM page */
     uint32_t size;
+    /* offset address of the selected NVM page */
     uint32_t offs;
 } nvm_ctrl_t;
 /* Private macro -------------------------------------------------------------*/
+/**
+ * break a 32-bit value into bytes
+ */
 #define BREAK_UINT32(var, ByteNum) \
           (uint8_t)((uint32_t)(((var) >>((ByteNum) * 8)) & 0x00FF))
 
+/**
+ * build a 32-bit value from bytes
+ */
 #define BUILD_UINT32(Byte0, Byte1, Byte2, Byte3) \
           ((uint32_t)((uint32_t)((Byte0) & 0x00FF) \
           + ((uint32_t)((Byte1) & 0x00FF) << 8) \
           + ((uint32_t)((Byte2) & 0x00FF) << 16) \
           + ((uint32_t)((Byte3) & 0x00FF) << 24)))
 
+/**
+ * build a 16-bit value from bytes
+ */
 #define BUILD_UINT16(loByte, hiByte) \
           ((uint16_t)(((loByte) & 0x00FF) + (((hiByte) & 0x00FF) << 8)))
 
+/**
+ * break a 16-bit value into bytes
+ */
 #define HI_UINT16(a) (((a) >> 8) & 0xFF)
 #define LO_UINT16(a) ((a) & 0xFF)
 
+/**
+ * bitmask value of one bit
+ */
 #define BIT(n)      (1<<n)
 /* Private function prototypes -----------------------------------------------*/
 static void set_reg_XXh(uint8_t reg_addr, uint8_t *payload, uint8_t length);
@@ -112,14 +152,30 @@ static void get_reg_2Bh(uint8_t reg_addr, uint8_t length);
 static void get_reg_2Ch(uint8_t reg_addr, uint8_t length);
 static void get_reg_2Dh(uint8_t reg_addr, uint8_t length);
 /* Private variables ---------------------------------------------------------*/
+/**
+ * password OK flag
+ * 1 == password check pass
+ * 0 == password check fail
+ */
 static uint8_t passwd_ok = 0;
+/* buffer to receive uart data */
 static uint8_t packet[256];
+/* FLASH memory read/write controller */
 static nvm_ctrl_t fmc = {.page = -1};
+/* EEPROM memory read/write controller */
 static nvm_ctrl_t emc = {.page = -1};
+
 #if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+/* packet error counter */
 static uint32_t pkt_err_cnt = 0;
+/* selected baud rate */
 static uint8_t baudrate_sel = 0;
 #endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+
+/**
+ * GET/SET handlers of a specified register address
+ * if NULL, set_reg_XXh() or get_reg_XXh() would be invoked instead
+ */
 static const reg_handler_t hdl[] = {
     {NULL,        get_reg_00h}, //00h
     {NULL,        get_reg_01h}, //01h
@@ -172,6 +228,7 @@ static const reg_handler_t hdl[] = {
 };
 
 #if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+/* uart baud rate list */
 static const uint32_t baudrate_lut[] = {
     2400,
     4800,
@@ -193,6 +250,14 @@ static const uint32_t baudrate_lut[] = {
 #endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
 
 /* Private functions ---------------------------------------------------------*/
+/**
+  * @brief  send a packet to host side
+  * @param  type [I] - packet type
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes in payload
+  * @param  payload [I] - points to the payload data
+  * @retval 0 = success, -1 = failure
+  */
 static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t length, void *payload)
 {
     uint8_t crc;
@@ -216,6 +281,11 @@ static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t length, void *
     return 0;
 }
 
+/**
+  * @brief  process the received packet
+  * @param  pkt [I] - the recived packet
+  * @retval 0 = success, -1 = failure
+  */
 static int8_t on_recv_packet(packet_t *pkt)
 {
     if(pkt->header.dev_addr != DEVICE_ADDR) return -1;
@@ -256,10 +326,25 @@ static int8_t on_recv_packet(packet_t *pkt)
     return 0;
 }
 
+/**
+  * @brief  Default register SET handler. Directly returns error code to host.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_XXh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
-    send_packet(TYPE_FAILURE_UNKNOWN_REG, reg_addr, 0, NULL);
+    send_packet(TYPE_FAILURE_NOT_SUPPORT, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  SET register 0x0E. Check password.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_0Eh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     if(length == strlen(BLDR_PASSWORD))
@@ -274,6 +359,14 @@ static void set_reg_0Eh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     passwd_ok = 0;
     send_packet(TYPE_FAILURE_ERR_PARAM, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  SET register 0x0F. Commit APROM image.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_0Fh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     uint32_t s;
@@ -296,6 +389,14 @@ static void set_reg_0Fh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
     hal_reset();
 }
+
+/**
+  * @brief  SET register 0x18. FLASH page erase or calculate page CRC.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     uint8_t buf[128];
@@ -352,6 +453,14 @@ static void set_reg_18h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
         return;
     }
 }
+
+/**
+  * @brief  SET register 0x19. FLASH page selection.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_19h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     int32_t page;
@@ -382,6 +491,14 @@ static void set_reg_19h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     fmc.offs = 0;
     send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  SET register 0x1C. Set FLASH page offset pointer.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_1Ch(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     uint32_t offs;
@@ -406,6 +523,14 @@ static void set_reg_1Ch(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     fmc.offs = offs;
     send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  SET register 0x1D. Write data into FLASH.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_1Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     if(!passwd_ok)
@@ -423,6 +548,14 @@ static void set_reg_1Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     fmc.offs += length;
     send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  SET register 0x28. EEPROM page erase or calculate page CRC.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     uint8_t buf[128];
@@ -479,6 +612,14 @@ static void set_reg_28h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
         return;
     }
 }
+
+/**
+  * @brief  SET register 0x29. EEPROM page selection.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_29h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     int32_t page;
@@ -509,6 +650,14 @@ static void set_reg_29h(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     emc.offs = 0;
     send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  SET register 0x2C. Set EEPROM page offset pointer.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_2Ch(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     uint32_t offs;
@@ -533,6 +682,14 @@ static void set_reg_2Ch(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     emc.offs = offs;
     send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  SET register 0x2D. Write data into EEPROM.
+  * @param  reg_addr [I] - register address
+  * @param  payload [I] - points to the payload data
+  * @param  length [I] - number of bytes in payload data
+  * @retval none
+  */
 static void set_reg_2Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
 {
     if(!passwd_ok)
@@ -551,10 +708,23 @@ static void set_reg_2Dh(uint8_t reg_addr, uint8_t *payload, uint8_t length)
     send_packet(TYPE_SUCCESS, reg_addr, 0, NULL);
 }
 
+/**
+  * @brief  Default register GET handler. Directly returns error code to host.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_XXh(uint8_t reg_addr, uint8_t length)
 {
-    send_packet(TYPE_FAILURE_UNKNOWN_REG, reg_addr, 0, NULL);
+    send_packet(TYPE_FAILURE_NOT_SUPPORT, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x00. Returns MCU part number.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_00h(uint8_t reg_addr, uint8_t length)
 {
     char payload[PKT_PLD_SIZE];
@@ -567,6 +737,13 @@ static void get_reg_00h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x01. Returns MCU UUID.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_01h(uint8_t reg_addr, uint8_t length)
 {
     char payload[PKT_PLD_SIZE];
@@ -578,6 +755,13 @@ static void get_reg_01h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x02. Returns bootloader version.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_02h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -591,6 +775,13 @@ static void get_reg_02h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x03. Returns bootloader start FLASH address.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_03h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -604,6 +795,13 @@ static void get_reg_03h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x04. Returns bootloader size.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_04h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -617,6 +815,13 @@ static void get_reg_04h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x10. Returns FLASH start address.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_10h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -630,6 +835,13 @@ static void get_reg_10h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x11. Returns FLASH total size.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_11h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -643,6 +855,13 @@ static void get_reg_11h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x12. Returns number of FLASH sectors.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_12h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -656,6 +875,13 @@ static void get_reg_12h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x13. Returns supported FLASH read/program width.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_13h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload = (FLASH_PROG_QWORD<<7)|\
@@ -671,6 +897,13 @@ static void get_reg_13h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x14. Returns Max. FLASH page erase time in ms.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_14h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -684,6 +917,13 @@ static void get_reg_14h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x15. Returns Max. FLASH page program time in ms.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_15h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -697,6 +937,13 @@ static void get_reg_15h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x19. Returns selected FLASH page ID.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_19h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4];
@@ -709,6 +956,13 @@ static void get_reg_19h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x1A. Returns FLASH page start address.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_1Ah(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4];
@@ -721,6 +975,13 @@ static void get_reg_1Ah(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x1B. Returns FLASH page size.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_1Bh(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4];
@@ -733,6 +994,13 @@ static void get_reg_1Bh(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x1C. Returns FLASH address offset pointer.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_1Ch(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4];
@@ -745,6 +1013,13 @@ static void get_reg_1Ch(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x1D. Returns data read from FLASH.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_1Dh(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[PKT_PLD_SIZE];
@@ -768,6 +1043,13 @@ static void get_reg_1Dh(uint8_t reg_addr, uint8_t length)
 
     send_packet(TYPE_SET, reg_addr, length, payload);
 }
+
+/**
+  * @brief  GET register 0x20. Returns (virtual) EEPROM's FLASH start address.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_20h(uint8_t reg_addr, uint8_t length)
 {
 #if defined (FLASH_VIRTUAL_EEPROM_SIZE) && (FLASH_VIRTUAL_EEPROM_SIZE > 0)
@@ -785,6 +1067,13 @@ static void get_reg_20h(uint8_t reg_addr, uint8_t length)
     send_packet(TYPE_FAILURE_NOT_SUPPORT, reg_addr, 0, NULL);
 #endif
 }
+
+/**
+  * @brief  GET register 0x21. Returns EEPROM total size.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_21h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -798,6 +1087,13 @@ static void get_reg_21h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x22. Returns number of EEPROM sectors.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_22h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -811,6 +1107,13 @@ static void get_reg_22h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x24. Returns Max. EEPROM page erase time in ms.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_24h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -824,6 +1127,13 @@ static void get_reg_24h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x25. Returns Max. EEPROM page program time in ms.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_25h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4] = {
@@ -837,6 +1147,13 @@ static void get_reg_25h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x29. Returns selected EEPROM page ID.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_29h(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4];
@@ -849,6 +1166,13 @@ static void get_reg_29h(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x2A. Returns EEPROM page start address.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_2Ah(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4];
@@ -861,6 +1185,13 @@ static void get_reg_2Ah(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x2B. Returns EEPROM page size.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_2Bh(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4];
@@ -873,6 +1204,13 @@ static void get_reg_2Bh(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x2C. Returns EEPROM address offset pointer.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_2Ch(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[4];
@@ -885,6 +1223,13 @@ static void get_reg_2Ch(uint8_t reg_addr, uint8_t length)
     else
         send_packet(TYPE_FAILURE_ERR_LENGTH, reg_addr, 0, NULL);
 }
+
+/**
+  * @brief  GET register 0x2D. Returns data read from EEPROM.
+  * @param  reg_addr [I] - register address
+  * @param  length [I] - number of bytes requested by host
+  * @retval none
+  */
 static void get_reg_2Dh(uint8_t reg_addr, uint8_t length)
 {
     uint8_t payload[PKT_PLD_SIZE];
@@ -939,9 +1284,15 @@ void bootloader_service(void)
     uint32_t signature;
 
 #if defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
+    /* start watch dog */
     hal_wdg_config(HAL_WDG_TIMEOUT);
     hal_wdg_start();
 #endif // defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
+
+    /**
+     * If APROM is committed but somehow there no data at start address of APROM, 
+     * erase the APROM committed signature to avoid running a half programmed image in APROM.
+     */
     if(hal_eeprom_read(EEPROM_ADDR_COMMIT_IMG_SIGNATURE, &signature, sizeof(signature)) == HAL_OK)
     {
         if(signature == COMMIT_IMG_SIGNATURE)
@@ -951,34 +1302,32 @@ void bootloader_service(void)
         }
     }
 
+    /* set default UART baud rate */
     hal_uart_config(HAL_UART_BAUDRATE);
 
     while(1)
     {
+#if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+        pkt_err_cnt++;
+#endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+        /* pending here until receives a full packet or error happens during receiving */
         if(hal_uart_recv(packet, sizeof(packet), &rxlen) == HAL_OK)
         {
+            /* check packet CRC */
             if(rxlen > sizeof(packet_header_t) && packet[rxlen-1] == crc8_maxim(packet, rxlen-1))
             {
-                on_recv_packet((packet_t *)packet);
+                /* check CRC passed and process the packet */
+                if(on_recv_packet((packet_t *)packet) == 0)
+                {
 #if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
-                pkt_err_cnt = 0;
+                    pkt_err_cnt = 0;
 #endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+                }
             }
-#if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
-            else
-            {
-                pkt_err_cnt++;
-            }
-#endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
         }
-#if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
-        else
-        {
-            pkt_err_cnt++;
-        }
-#endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
 
 #if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+        /* adjust the baud rate if error count exceeds the size of the packet header */
         if(pkt_err_cnt > sizeof(packet_header_t))
         {
             do

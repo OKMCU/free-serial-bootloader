@@ -359,7 +359,7 @@ int8_t hal_uart_recv(uint8_t *p_data, uint32_t size, uint32_t *rxlen)
     uart_rx_ctrl.rxlen = 0;
     uart_rx_ctrl.complete = 0;
     uart_rx_ctrl.error = 0;
-    usart_receive_config(USART0, USART_RECEIVE_ENABLE);
+
     while(uart_rx_ctrl.complete == 0 && uart_rx_ctrl.error == 0)
     {
 #if defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
@@ -386,18 +386,14 @@ void hal_uart_isr(void)
     {
         /* receive data */
         byte = usart_data_receive(USART0);
+        if(uart_rx_ctrl.complete) return;
+        if(uart_rx_ctrl.error) return;
         rxlen = uart_rx_ctrl.rxlen;
-        if(rxlen == 0)
-        {
-            usart_interrupt_flag_clear(USART0, USART_INT_FLAG_IDLE);
-            usart_interrupt_enable(USART0, USART_INT_IDLE);
-        }
         if(rxlen < uart_rx_ctrl.size)
         {
             uart_rx_ctrl.p_rxbuf[rxlen++] = byte;
             if(rxlen == uart_rx_ctrl.size)
             {
-                usart_receive_config(USART0, USART_RECEIVE_DISABLE);
                 uart_rx_ctrl.complete = 1;
             }
             uart_rx_ctrl.rxlen = rxlen;
@@ -409,7 +405,6 @@ void hal_uart_isr(void)
     {
         /* clear interrupt flag */
         usart_interrupt_flag_clear(USART0, USART_INT_FLAG_PERR);
-        usart_receive_config(USART0, USART_RECEIVE_DISABLE);
         uart_rx_ctrl.error = 1;
         return;
     }
@@ -418,7 +413,6 @@ void hal_uart_isr(void)
     {
         /* clear interrupt flag */
         usart_interrupt_flag_clear(USART0, USART_INT_FLAG_ERR_NERR);
-        usart_receive_config(USART0, USART_RECEIVE_DISABLE);
         uart_rx_ctrl.error = 1;
         return;
     }
@@ -427,7 +421,6 @@ void hal_uart_isr(void)
     {
         /* clear interrupt flag */
         usart_interrupt_flag_clear(USART0, USART_INT_FLAG_ERR_ORERR);
-        usart_receive_config(USART0, USART_RECEIVE_DISABLE);
         uart_rx_ctrl.error = 1;
         return;
     }
@@ -436,7 +429,6 @@ void hal_uart_isr(void)
     {
         /* clear interrupt flag */
         usart_interrupt_flag_clear(USART0, USART_INT_FLAG_ERR_FERR);
-        usart_receive_config(USART0, USART_RECEIVE_DISABLE);
         uart_rx_ctrl.error = 1;
         return;
     }
@@ -445,9 +437,6 @@ void hal_uart_isr(void)
     {
         /* clear interrupt flag */
         usart_interrupt_flag_clear(USART0, USART_INT_FLAG_IDLE);
-        usart_interrupt_disable(USART0, USART_INT_IDLE);
-        //byte = usart_data_receive(USART0);
-        usart_receive_config(USART0, USART_RECEIVE_DISABLE);
         uart_rx_ctrl.complete = 1;
         return;
     }
