@@ -197,7 +197,10 @@ int8_t hal_uart_send(const uint8_t *p_data, uint32_t txlen);
 
 /**
   * @brief  Receive data through UART interface. This function receives data in blocking mode.
-  *         It never returns until the buffer is full or an idle frame is detected on UART RXD line.
+  *         It never returns until below one of events happens,
+  *         (1) the receive buffer is full
+  *         (2) an idle frame is detected on UART RXD line
+  *         (3) any UART error is detected, e.g. overrun, framing error, noise error etc.
   * @param  p_data [I] - buffer to receive data
   * @param  size [I] - buffer size
   * @param  rxlen [O] - number of bytes received

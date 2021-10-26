@@ -333,7 +333,10 @@ int8_t hal_eeprom_write(uint32_t addr, const void *p_buf, uint32_t size)
 
 int8_t hal_uart_config(uint32_t baudrate)
 {
-    usart_baudrate_set(USART0, HAL_UART_BAUDRATE);
+    /* USART configure */
+    usart_disable(USART0);
+    usart_baudrate_set(USART0, baudrate);
+    usart_enable(USART0);
     return HAL_OK;
 }
 
@@ -399,6 +402,25 @@ void hal_uart_isr(void)
             }
             uart_rx_ctrl.rxlen = rxlen;
         }
+        return;
+    }
+
+    if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_PERR))
+    {
+        /* clear interrupt flag */
+        usart_interrupt_flag_clear(USART0, USART_INT_FLAG_PERR);
+        usart_receive_config(USART0, USART_RECEIVE_DISABLE);
+        uart_rx_ctrl.error = 1;
+        return;
+    }
+
+    if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_ERR_NERR))
+    {
+        /* clear interrupt flag */
+        usart_interrupt_flag_clear(USART0, USART_INT_FLAG_ERR_NERR);
+        usart_receive_config(USART0, USART_RECEIVE_DISABLE);
+        uart_rx_ctrl.error = 1;
+        return;
     }
 
     if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_ERR_ORERR))
@@ -407,6 +429,16 @@ void hal_uart_isr(void)
         usart_interrupt_flag_clear(USART0, USART_INT_FLAG_ERR_ORERR);
         usart_receive_config(USART0, USART_RECEIVE_DISABLE);
         uart_rx_ctrl.error = 1;
+        return;
+    }
+
+    if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_ERR_FERR))
+    {
+        /* clear interrupt flag */
+        usart_interrupt_flag_clear(USART0, USART_INT_FLAG_ERR_FERR);
+        usart_receive_config(USART0, USART_RECEIVE_DISABLE);
+        uart_rx_ctrl.error = 1;
+        return;
     }
 
     if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_IDLE))
@@ -417,6 +449,7 @@ void hal_uart_isr(void)
         //byte = usart_data_receive(USART0);
         usart_receive_config(USART0, USART_RECEIVE_DISABLE);
         uart_rx_ctrl.complete = 1;
+        return;
     }
 }
 /******************************** END OF FILE *********************************/

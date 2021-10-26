@@ -116,7 +116,10 @@ static uint8_t passwd_ok = 0;
 static uint8_t packet[256];
 static nvm_ctrl_t fmc = {.page = -1};
 static nvm_ctrl_t emc = {.page = -1};
-
+#if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+static uint32_t pkt_err_cnt = 0;
+static uint8_t baudrate_sel = 0;
+#endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
 static const reg_handler_t hdl[] = {
     {NULL,        get_reg_00h}, //00h
     {NULL,        get_reg_01h}, //01h
@@ -167,6 +170,28 @@ static const reg_handler_t hdl[] = {
     {NULL,        NULL       }, //2Eh
     {NULL,        NULL       }, //2Fh
 };
+
+#if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+static const uint32_t baudrate_lut[] = {
+    2400,
+    4800,
+    9600,
+    14400,
+    19200,
+    38400,
+    56000,
+    57600,
+    115200,
+    128000,
+    230400,
+    256000,
+    460800,
+    921600,
+    1000000,
+    2000000
+};
+#endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+
 /* Private functions ---------------------------------------------------------*/
 static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t length, void *payload)
 {
@@ -926,15 +951,48 @@ void bootloader_service(void)
         }
     }
 
+    hal_uart_config(HAL_UART_BAUDRATE);
+
     while(1)
     {
         if(hal_uart_recv(packet, sizeof(packet), &rxlen) == HAL_OK)
         {
-            if(packet[rxlen-1] == crc8_maxim(packet, rxlen-1))
+            if(rxlen > sizeof(packet_header_t) && packet[rxlen-1] == crc8_maxim(packet, rxlen-1))
             {
                 on_recv_packet((packet_t *)packet);
+#if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+                pkt_err_cnt = 0;
+#endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
             }
+#if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+            else
+            {
+                pkt_err_cnt++;
+            }
+#endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
         }
+#if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+        else
+        {
+            pkt_err_cnt++;
+        }
+#endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+
+#if defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
+        if(pkt_err_cnt > sizeof(packet_header_t))
+        {
+            do
+            {
+                baudrate_sel++;
+                if(baudrate_sel >= sizeof(baudrate_lut)/sizeof(baudrate_lut[0]))
+                {
+                    baudrate_sel = 0;
+                }
+            }
+            while(hal_uart_config(baudrate_lut[baudrate_sel]) != HAL_OK);
+            pkt_err_cnt = 0;
+        }
+#endif //defined (BAUDRATE_AUTO_DETECTION_EN) && (BAUDRATE_AUTO_DETECTION_EN > 0)
     }
 }
 /******************************** END OF FILE *********************************/
