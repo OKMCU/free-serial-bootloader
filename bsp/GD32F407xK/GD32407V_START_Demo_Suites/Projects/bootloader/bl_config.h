@@ -25,6 +25,7 @@
 #endif
 /* Exported constants --------------------------------------------------------*/
 #define HAL_UART_BAUDRATE                   115200ul
+#define BAUDRATE_AUTO_DETECTION_EN          1
 #define HAL_WDG_ENABLE                      0
 #define HAL_WDG_TIMEOUT                     2000
 #define CRC8_MAXIM_ALGO_SEL                 1

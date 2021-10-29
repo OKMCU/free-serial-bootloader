@@ -426,7 +426,10 @@ int8_t hal_eeprom_write(uint32_t addr, const void *p_buf, uint32_t size)
 
 int8_t hal_uart_config(uint32_t baudrate)
 {
-    usart_baudrate_set(USART0, HAL_UART_BAUDRATE);
+    /* USART configure */
+    usart_disable(USART0);
+    usart_baudrate_set(USART0, baudrate);
+    usart_enable(USART0);
     return HAL_OK;
 }
 
@@ -449,8 +452,8 @@ int8_t hal_uart_recv(uint8_t *p_data, uint32_t size, uint32_t *rxlen)
     uart_rx_ctrl.rxlen = 0;
     uart_rx_ctrl.complete = 0;
     uart_rx_ctrl.error = 0;
-    usart_receive_config(USART0, USART_RECEIVE_ENABLE);
-    while(uart_rx_ctrl.complete == 0 && uart_rx_ctrl.error == 0)
+
+    while(uart_rx_ctrl.complete == 0)
     {
 #if defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
         /* refresh watch dog counter */
@@ -458,7 +461,7 @@ int8_t hal_uart_recv(uint8_t *p_data, uint32_t size, uint32_t *rxlen)
 #endif // defined (HAL_WDG_ENABLE) && (HAL_WDG_ENABLE > 0)
     }
 
-    if(uart_rx_ctrl.complete)
+    if(uart_rx_ctrl.complete && uart_rx_ctrl.rxlen > 0 && uart_rx_ctrl.error == 0)
     {
         *rxlen = uart_rx_ctrl.rxlen;
         return HAL_OK;
@@ -471,30 +474,63 @@ void hal_uart_isr(void)
 {
     uint8_t byte;
     uint32_t rxlen;
+
     if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_RBNE))
     {
         /* receive data */
         byte = usart_data_receive(USART0);
+        if(uart_rx_ctrl.complete) return;
         rxlen = uart_rx_ctrl.rxlen;
         if(rxlen < uart_rx_ctrl.size)
         {
             uart_rx_ctrl.p_rxbuf[rxlen++] = byte;
-            if(rxlen == uart_rx_ctrl.size)
-            {
-                usart_receive_config(USART0, USART_RECEIVE_DISABLE);
-                uart_rx_ctrl.complete = 1;
-            }
             uart_rx_ctrl.rxlen = rxlen;
         }
+        else
+        {
+            uart_rx_ctrl.error = 1;
+        }
+        return;
+    }
+
+    if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_PERR))
+    {
+        /* clear interrupt flag */
+        usart_interrupt_flag_clear(USART0, USART_INT_FLAG_PERR);
+        uart_rx_ctrl.error = 1;
+        return;
+    }
+
+    if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_ERR_NERR))
+    {
+        /* clear interrupt flag */
+        usart_interrupt_flag_clear(USART0, USART_INT_FLAG_ERR_NERR);
+        uart_rx_ctrl.error = 1;
+        return;
+    }
+
+    if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_ERR_ORERR))
+    {
+        /* clear interrupt flag */
+        usart_interrupt_flag_clear(USART0, USART_INT_FLAG_ERR_ORERR);
+        uart_rx_ctrl.error = 1;
+        return;
+    }
+
+    if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_ERR_FERR))
+    {
+        /* clear interrupt flag */
+        usart_interrupt_flag_clear(USART0, USART_INT_FLAG_ERR_FERR);
+        uart_rx_ctrl.error = 1;
+        return;
     }
 
     if(RESET != usart_interrupt_flag_get(USART0, USART_INT_FLAG_IDLE))
     {
         /* clear interrupt flag */
-        //usart_interrupt_flag_clear(USART0, USART_INT_FLAG_IDLE);
         byte = usart_data_receive(USART0);
-        usart_receive_config(USART0, USART_RECEIVE_DISABLE);
         uart_rx_ctrl.complete = 1;
+        return;
     }
 }
 /******************************** END OF FILE *********************************/
