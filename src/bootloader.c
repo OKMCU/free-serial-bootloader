@@ -270,13 +270,13 @@ static int8_t send_packet(uint8_t type, uint8_t reg_addr, uint8_t length, void *
     pkt_header.length = length;
 
     crc = crc8_maxim((uint8_t *)&pkt_header, sizeof(pkt_header));
-    if(length > 0)
+    if(type == TYPE_SET && length > 0 && payload != NULL)
         crc = crc8_maxim_update(crc, payload, length);
 
     hal_uart_send((uint8_t *)&pkt_header, sizeof(pkt_header));
-    if(length > 0)
+    if(type == TYPE_SET && length > 0 && payload != NULL)
         hal_uart_send((uint8_t *)payload, length);
-    hal_uart_send((uint8_t *)crc, 1);
+    hal_uart_send((uint8_t *)&crc, 1);
 
     return 0;
 }
